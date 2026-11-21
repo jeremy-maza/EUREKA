@@ -1,16 +1,26 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from '@/features/auth/AuthContext'
+import { RequireAuth } from '@/features/auth/RequireAuth'
+import { AuthPage } from '@/features/auth/pages/AuthPage'
 import { GamePage } from '@/features/game/pages/GamePage'
 import { ResultsPage } from '@/features/game/pages/ResultsPage'
+import { HomePage } from '@/features/home/pages/HomePage'
 
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<GamePage />} />
-        <Route path="/juego" element={<GamePage />} />
-        <Route path="/final" element={<ResultsPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="/acceso" element={<AuthPage mode="login" />} />
+          <Route path="/registro" element={<AuthPage mode="register" />} />
+          <Route element={<RequireAuth />}>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/juego" element={<GamePage />} />
+            <Route path="/final" element={<ResultsPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

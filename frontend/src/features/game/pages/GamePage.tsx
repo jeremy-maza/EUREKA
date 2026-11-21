@@ -1,21 +1,44 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Pause, Play, RotateCcw, Send, Sparkles } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Send, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { arithmeticChallenges, type ChallengeRule } from '@/features/arithmetic/data/challenges'
+import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants'
 import { FloatingIsland } from '@/features/game/components/FloatingIsland'
 import { Grasshopper } from '@/features/game/components/Grasshopper'
+import { api, ApiError } from '@/shared/api/client'
+import type { AnswerResult, ChallengeAttempt, Rule, Violation } from '@/shared/api/types'
 import { Logo } from '@/shared/components/Logo'
+import { ScreenMessage } from '@/shared/components/ScreenMessage'
 import styles from './GamePage.module.css'
 
 type Feedback = 'idle' | 'success' | 'error'
 
-const getTimeLimit = (questionNumber: number) => Math.max(30 - ((questionNumber - 1) * 2), 8)
+/** Fin de la secuencia decidido por el servidor: respuesta incorrecta, regla violada o tiempo agotado. */
+type Failure = {
+  title: string
+  message: string
+  violations: Violation[]
+}
+
+type Scoreboard = {
+  totalPoints: number
+  streak: number
+  nextMultiplier: string
+}
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60).toString().padStart(2, '0')
   const remainingSeconds = (seconds % 60).toString().padStart(2, '0')
   return `${minutes}:${remainingSeconds}`
 }
+
+/** Solo presentación: el servidor usa `*` y `/`, pero también acepta `×` y `÷`. */
+const formatExpression = (expression: string) => expression.replace(/\*/g, '×').replace(/\//g, '÷')
+
+const describeFailure = (result: AnswerResult): Failure => ({
+  title: result.outcome === 'TIMEOUT' ? '¡Tiempo agotado!' : '¡Secuencia terminada!',
+  message: result.message,
+  violations: result.violations,
+})
 
 const platformRoute = [
   { side: 'left', x: 29, top: 84 },
@@ -25,6 +48,8 @@ const platformRoute = [
   { side: 'left', x: 29, top: 24 },
 ] as const
 
+const platformForPosition = (position: number) => Math.min(Math.max(position - 1, 0), platformRoute.length - 1)
+
 const backgroundFiles = import.meta.glob('../../../assets/backgrounds/*.{png,jpg,jpeg,webp}', {
   eager: true,
   query: '?url',
@@ -33,102 +58,149 @@ const backgroundFiles = import.meta.glob('../../../assets/backgrounds/*.{png,jpg
 const backgroundUrl = Object.entries(backgroundFiles)
   .find(([path]) => path.endsWith('arithmetic-background.png'))?.[1] as string | undefined
 
+const errorMessage = (error: unknown) =>
+  error instanceof ApiError ? error.message : 'Ocurrió un error inesperado. Inténtalo de nuevo.'
+
 export function GamePage() {
   const navigate = useNavigate()
-  const [challengeIndex, setChallengeIndex] = useState(0)
-  const [remainingSeconds, setRemainingSeconds] = useState(getTimeLimit(1))
-  const [isGameOver, setIsGameOver] = useState(false)
+  const [phase, setPhase] = useState<'loading' | 'error' | 'ready'>('loading')
+  const [loadError, setLoadError] = useState('')
+  const [attempt, setAttempt] = useState<ChallengeAttempt | null>(null)
+  const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null)
+  const [deadline, setDeadline] = useState<number | null>(null)
+  const [remainingSeconds, setRemainingSeconds] = useState(0)
+  const [failure, setFailure] = useState<Failure | null>(null)
+  const [isRestarting, setIsRestarting] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoadingNext, setIsLoadingNext] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [playerPlatform, setPlayerPlatform] = useState(0)
   const [jumpTargetIndex, setJumpTargetIndex] = useState<number | null>(null)
+  const [hasJumped, setHasJumped] = useState(false)
   const [answer, setAnswer] = useState('')
   const answerInputRef = useRef<HTMLInputElement>(null)
   const [feedback, setFeedback] = useState<Feedback>('idle')
-  const [discoveredRule, setDiscoveredRule] = useState<ChallengeRule | null>(null)
+  const [discoveredRule, setDiscoveredRule] = useState<Rule | null>(null)
   const [isRuleToastLeaving, setIsRuleToastLeaving] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
-  const remainingSecondsRef = useRef(remainingSeconds)
-  const remainingMillisecondsRef = useRef(remainingSeconds * 1000)
-  const countdownDeadlineRef = useRef<number | null>(null)
-  const countdownIntervalRef = useRef<number | null>(null)
-  const hasAnsweredRef = useRef(false)
-  const isGameOverRef = useRef(false)
-  const challenge = arithmeticChallenges[challengeIndex]
-  const timeLimit = getTimeLimit(challenge.number)
+  const sessionIdRef = useRef<string | null>(null)
+  const runRef = useRef(0)
+  const isSubmittingRef = useRef(false)
+  const completedRef = useRef(false)
 
-  const clearCountdown = useCallback(() => {
-    if (countdownIntervalRef.current !== null) {
-      window.clearInterval(countdownIntervalRef.current)
-      countdownIntervalRef.current = null
+  const isGameOver = failure !== null
+  const isBusy = isSubmitting || isLoadingNext || isRestarting
+
+  /** Carga en pantalla un reto devuelto por el servidor (el tiempo restante lo fija el servidor). */
+  const applyAttempt = useCallback((next: ChallengeAttempt, syncPlatform: boolean) => {
+    setAttempt(next)
+    setDeadline(Date.now() + next.remainingMs)
+    setRemainingSeconds(Math.ceil(next.remainingMs / 1000))
+    setAnswer('')
+    setFeedback('idle')
+    setFailure(null)
+    setSubmitError(null)
+    setHasJumped(false)
+    if (syncPlatform) setPlayerPlatform(platformForPosition(next.position))
+    if (next.newRule) {
+      setIsRuleToastLeaving(false)
+      setDiscoveredRule(next.newRule)
+    } else {
+      setDiscoveredRule(null)
     }
   }, [])
 
-  const stopCountdown = useCallback(() => {
-    clearCountdown()
-    if (countdownDeadlineRef.current !== null) {
-      remainingMillisecondsRef.current = Math.max(countdownDeadlineRef.current - Date.now(), 0)
-      countdownDeadlineRef.current = null
+  const applyScore = useCallback((progress: Scoreboard) => {
+    setScoreboard({
+      totalPoints: progress.totalPoints,
+      streak: progress.streak,
+      nextMultiplier: progress.nextMultiplier,
+    })
+  }, [])
+
+  /** Abre (o reanuda) la sesión del mundo 1 y el reto actual. Devuelve `false` si una carga más reciente la reemplazó. */
+  const startRun = useCallback(async () => {
+    const runId = ++runRef.current
+    const { session } = await api.startSession(ARITHMETIC_WORLD_SLUG)
+    const first = await api.startAttempt(session.id)
+    const progress = await api.worldProgress(ARITHMETIC_WORLD_SLUG)
+    if (runRef.current !== runId) return false
+    sessionIdRef.current = session.id
+    completedRef.current = false
+    applyAttempt(first, true)
+    applyScore(progress)
+    return true
+  }, [applyAttempt, applyScore])
+
+  useEffect(() => {
+    let cancelled = false
+    startRun()
+      .then((applied) => {
+        if (!cancelled && applied) setPhase('ready')
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setLoadError(errorMessage(error))
+        setPhase('error')
+      })
+    return () => {
+      cancelled = true
+      runRef.current += 1
     }
-  }, [clearCountdown])
-
-  const expireGame = useCallback(() => {
-    if (isGameOverRef.current || hasAnsweredRef.current) return
-
-    isGameOverRef.current = true
-    remainingSecondsRef.current = 0
-    remainingMillisecondsRef.current = 0
-    countdownDeadlineRef.current = null
-    clearCountdown()
-    setRemainingSeconds(0)
-    setIsGameOver(true)
-    setIsPaused(false)
-  }, [clearCountdown])
+  }, [startRun])
 
   useEffect(() => {
-    if (!isPaused && !isGameOver) answerInputRef.current?.focus()
-  }, [challengeIndex, isGameOver, isPaused])
+    if (phase === 'ready' && !isBusy && !isGameOver && feedback !== 'success') answerInputRef.current?.focus()
+  }, [phase, attempt?.attemptId, isBusy, isGameOver, feedback])
 
-  useEffect(() => {
-    if (isPaused || isGameOver || hasAnsweredRef.current) return
-
-    const deadline = Date.now() + remainingMillisecondsRef.current
-    countdownDeadlineRef.current = deadline
-    const updateCountdown = () => {
-      if (hasAnsweredRef.current || isGameOverRef.current) return
-
-      const millisecondsLeft = Math.max(deadline - Date.now(), 0)
-      const secondsLeft = Math.ceil(millisecondsLeft / 1000)
-      remainingMillisecondsRef.current = millisecondsLeft
-
-      if (secondsLeft !== remainingSecondsRef.current) {
-        remainingSecondsRef.current = secondsLeft
-        setRemainingSeconds(secondsLeft)
+  /** El reloj local solo es informativo: al llegar a 0 se consulta al servidor, que decide si venció. */
+  const checkDeadlineWithServer = useCallback(async () => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    try {
+      const current = await api.currentAttempt(sessionId)
+      if (current === null) {
+        // El servidor cerró el reto por tiempo y reinició la secuencia.
+        setDeadline(null)
+        setRemainingSeconds(0)
+        setFailure({
+          title: '¡Tiempo agotado!',
+          message: 'El mundo comenzará de nuevo.',
+          violations: [],
+        })
+        return
       }
+      setDeadline(Date.now() + current.remainingMs)
+    } catch {
+      setDeadline(Date.now() + 2000)
+    }
+  }, [])
 
-      if (millisecondsLeft === 0) expireGame()
+  useEffect(() => {
+    if (deadline === null || phase !== 'ready' || isGameOver || feedback === 'success') return
+
+    let expired = false
+    const updateCountdown = () => {
+      const millisecondsLeft = Math.max(deadline - Date.now(), 0)
+      setRemainingSeconds(Math.ceil(millisecondsLeft / 1000))
+      if (millisecondsLeft > 0 || expired || isSubmittingRef.current) return
+      expired = true
+      void checkDeadlineWithServer()
     }
 
     const interval = window.setInterval(updateCountdown, 250)
-    countdownIntervalRef.current = interval
-
-    return () => {
-      window.clearInterval(interval)
-      if (countdownIntervalRef.current === interval) countdownIntervalRef.current = null
-      if (countdownDeadlineRef.current === deadline) {
-        remainingMillisecondsRef.current = Math.max(deadline - Date.now(), 0)
-        countdownDeadlineRef.current = null
-      }
-    }
-  }, [challengeIndex, expireGame, isGameOver, isPaused])
+    return () => window.clearInterval(interval)
+  }, [deadline, phase, isGameOver, feedback, checkDeadlineWithServer])
 
   useEffect(() => {
-    if (feedback !== 'success' || jumpTargetIndex !== null) return
+    if (feedback !== 'success' || jumpTargetIndex !== null || hasJumped) return
 
     const timer = window.setTimeout(() => {
+      setHasJumped(true)
       setJumpTargetIndex(Math.min(playerPlatform + 1, platformRoute.length - 1))
     }, 350)
 
     return () => window.clearTimeout(timer)
-  }, [feedback, jumpTargetIndex, playerPlatform])
+  }, [feedback, jumpTargetIndex, hasJumped, playerPlatform])
 
   useEffect(() => {
     if (!discoveredRule) return
@@ -142,32 +214,69 @@ export function GamePage() {
     }
   }, [discoveredRule])
 
-  const checkAnswer = () => {
+  const checkAnswer = async () => {
     if (
-      feedback === 'success'
+      !attempt
+      || feedback === 'success'
       || jumpTargetIndex !== null
-      || isPaused
-      || isGameOverRef.current
-      || hasAnsweredRef.current
+      || isBusy
+      || isGameOver
+      || isSubmittingRef.current
     ) return
 
-    if (
-      remainingSecondsRef.current === 0
-      || (countdownDeadlineRef.current !== null && Date.now() >= countdownDeadlineRef.current)
-    ) {
-      expireGame()
-      return
-    }
-
-    if (!answer.trim() || answer.trim() === '0') {
+    if (!answer.trim()) {
       setFeedback('error')
       answerInputRef.current?.focus()
       return
     }
 
-    hasAnsweredRef.current = true
-    stopCountdown()
-    setFeedback('success')
+    isSubmittingRef.current = true
+    setIsSubmitting(true)
+    setSubmitError(null)
+    try {
+      const result = await api.answer(attempt.attemptId, answer.trim())
+      applyScore(result.progress)
+      setDeadline(null)
+      if (result.outcome === 'CORRECT') {
+        completedRef.current = result.worldCompleted
+        setFeedback('success')
+      } else {
+        setFailure(describeFailure(result))
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        // El reto ya se resolvió con otra respuesta (otra pestaña): se vuelve a sincronizar con el servidor.
+        setIsLoadingNext(true)
+        try {
+          await startRun()
+        } catch (syncError) {
+          setSubmitError(errorMessage(syncError))
+        } finally {
+          setIsLoadingNext(false)
+        }
+      } else {
+        setSubmitError(errorMessage(error))
+        // Si el plazo local ya pasó, que el servidor lo confirme.
+        setDeadline((current) => (current !== null && current <= Date.now() ? Date.now() : current))
+      }
+    } finally {
+      isSubmittingRef.current = false
+      setIsSubmitting(false)
+    }
+  }
+
+  const loadNextChallenge = async () => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    setIsLoadingNext(true)
+    try {
+      applyAttempt(await api.startAttempt(sessionId), false)
+    } catch (error) {
+      setLoadError(errorMessage(error))
+      setPhase('error')
+    } finally {
+      setIsLoadingNext(false)
+    }
   }
 
   const handleJumpLanded = () => {
@@ -176,52 +285,53 @@ export function GamePage() {
     setPlayerPlatform(jumpTargetIndex)
     setJumpTargetIndex(null)
 
-    if (challengeIndex === arithmeticChallenges.length - 1) {
+    if (completedRef.current) {
       navigate('/final')
       return
     }
 
-    const nextChallenge = arithmeticChallenges[challengeIndex + 1]
-    const newRule = nextChallenge.rules.find(
-      (rule) => !challenge.rules.some((previousRule) => previousRule.id === rule.id),
-    )
-    if (newRule) {
-      setIsRuleToastLeaving(false)
-      setDiscoveredRule(newRule)
+    void loadNextChallenge()
+  }
+
+  const restartGame = async () => {
+    if (isRestarting) return
+    setIsRestarting(true)
+    try {
+      await startRun()
+    } catch (error) {
+      setFailure((current) => current && { ...current, message: errorMessage(error) })
+    } finally {
+      setIsRestarting(false)
     }
-
-    const nextTimeLimit = getTimeLimit(nextChallenge.number)
-    remainingSecondsRef.current = nextTimeLimit
-    remainingMillisecondsRef.current = nextTimeLimit * 1000
-    countdownDeadlineRef.current = null
-    setRemainingSeconds(nextTimeLimit)
-    hasAnsweredRef.current = false
-    setChallengeIndex((current) => current + 1)
-    setAnswer('')
-    setFeedback('idle')
   }
 
-  const restartGame = () => {
-    clearCountdown()
-    const initialTimeLimit = getTimeLimit(1)
-    remainingSecondsRef.current = initialTimeLimit
-    remainingMillisecondsRef.current = initialTimeLimit * 1000
-    countdownDeadlineRef.current = null
-    hasAnsweredRef.current = false
-    isGameOverRef.current = false
-    setRemainingSeconds(initialTimeLimit)
-    setIsGameOver(false)
-    setIsPaused(false)
-    setChallengeIndex(0)
-    setPlayerPlatform(0)
-    setJumpTargetIndex(null)
-    setAnswer('')
-    setFeedback('idle')
-    setDiscoveredRule(null)
-    setIsRuleToastLeaving(false)
+  const retryLoad = () => {
+    setPhase('loading')
+    startRun()
+      .then((applied) => {
+        if (applied) setPhase('ready')
+      })
+      .catch((error: unknown) => {
+        setLoadError(errorMessage(error))
+        setPhase('error')
+      })
   }
 
+  if (phase === 'loading') return <ScreenMessage title="Preparando el mundo…" />
+
+  if (phase === 'error' || !attempt) {
+    return (
+      <ScreenMessage title="No pudimos cargar el juego">
+        <p>{loadError}</p>
+        <button type="button" onClick={retryLoad}>Reintentar</button>
+        <button type="button" onClick={() => navigate('/')}>Volver al inicio</button>
+      </ScreenMessage>
+    )
+  }
+
+  const timeLimit = attempt.timeLimitSeconds
   const timerLevel = remainingSeconds <= 5 ? 'red' : remainingSeconds <= 10 ? 'yellow' : 'green'
+  const operation = formatExpression(attempt.expression)
 
   return (
     <main className={styles.page}>
@@ -233,21 +343,21 @@ export function GamePage() {
           <strong>Aritmética</strong>
         </div>
         <div className={styles.challengeMeta}>
-          <span>Desafío <strong>{challenge.number}</strong> de {arithmeticChallenges.length}</span>
-          <div className={styles.progressBar} aria-label={`Progreso ${challengeIndex + 1} de ${arithmeticChallenges.length}`}>
-            {arithmeticChallenges.map((item, index) => (
-              <i key={item.number} className={index <= challengeIndex ? styles.complete : ''} />
+          <span>Desafío <strong>{attempt.position}</strong> de {attempt.challengeCount}</span>
+          <div className={styles.progressBar} aria-label={`Progreso ${attempt.position} de ${attempt.challengeCount}`}>
+            {Array.from({ length: attempt.challengeCount }, (_, index) => (
+              <i key={index} className={index < attempt.position ? styles.complete : ''} />
             ))}
           </div>
         </div>
         <div className={styles.actions}>
           <button
             type="button"
-            onClick={() => setIsPaused(true)}
-            aria-label="Pausar juego"
-            disabled={feedback === 'success' || isGameOver}
+            onClick={() => navigate('/')}
+            aria-label="Volver al inicio"
+            disabled={feedback === 'success' || isBusy}
           >
-            <Pause size={18} />
+            <ArrowLeft size={18} />
           </button>
         </div>
       </header>
@@ -272,7 +382,7 @@ export function GamePage() {
         >
           <span
             className={styles.timerProgress}
-            style={{ width: `${(remainingSeconds / timeLimit) * 100}%` }}
+            style={{ width: `${Math.min((remainingSeconds / timeLimit) * 100, 100)}%` }}
           />
         </div>
       </div>
@@ -303,48 +413,61 @@ export function GamePage() {
           <div className={styles.challengeTopline}>
             <span className={styles.challengeBadge}><Sparkles size={16} /> DESAFÍO</span>
           </div>
-          <h1 aria-label={`Operación ${challenge.operation}`}>{challenge.operation}</h1>
-          <p>{challenge.instruction}</p>
+          <h1 data-long={operation.length > 8} aria-label={`Operación ${operation}`}>{operation}</h1>
+          <p>Escribe una expresión con el mismo resultado que cumpla todas las reglas</p>
 
-          <form onSubmit={(event) => { event.preventDefault(); checkAnswer() }}>
+          <form onSubmit={(event) => { event.preventDefault(); void checkAnswer() }}>
             <label htmlFor="answer">Tu respuesta</label>
             <div className={`${styles.answerRow} ${feedback === 'error' ? styles.answerError : ''}`}>
               <input
                 id="answer"
                 ref={answerInputRef}
-                inputMode="numeric"
+                inputMode="text"
+                autoCapitalize="off"
+                spellCheck={false}
+                maxLength={200}
                 value={answer}
                 aria-invalid={feedback === 'error'}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    checkAnswer()
-                  }
-                }}
                 onChange={(event) => {
                   setAnswer(event.target.value)
                   if (feedback !== 'idle') setFeedback('idle')
                 }}
                 placeholder="Tu respuesta"
                 autoComplete="off"
-                disabled={feedback === 'success' || isPaused || isGameOver}
+                disabled={feedback === 'success' || isBusy || isGameOver}
               />
               <button
                 type="submit"
                 aria-label="Enviar respuesta"
-                disabled={feedback === 'success' || isPaused || isGameOver}
+                disabled={feedback === 'success' || isBusy || isGameOver}
               >
                 <Send size={18} />
               </button>
             </div>
+            {submitError && <p className={styles.formError} role="alert">{submitError}</p>}
           </form>
 
+          <ul className={styles.rules} aria-label="Reglas activas">
+            {attempt.rules.map((rule) => (
+              <li key={rule.key} className={rule.key === attempt.newRule?.key ? styles.ruleNew : ''}>
+                {rule.description}
+              </li>
+            ))}
+          </ul>
         </article>
       </section>
 
+      {scoreboard && (
+        <div className={styles.scoreboard} aria-label="Puntuación">
+          <span>PUNTOS <strong>{scoreboard.totalPoints}</strong></span>
+          <span>RACHA <strong>{scoreboard.streak}</strong></span>
+          <span>PRÓXIMO <strong>×{scoreboard.nextMultiplier}</strong></span>
+        </div>
+      )}
+
       {discoveredRule && (
         <aside
-          key={discoveredRule.id}
+          key={discoveredRule.key}
           className={`${styles.ruleToast} ${isRuleToastLeaving ? styles.ruleToastLeaving : ''}`}
           role="status"
           aria-live="polite"
@@ -353,30 +476,25 @@ export function GamePage() {
           <Sparkles size={19} aria-hidden="true" />
           <div>
             <strong>NUEVA REGLA</strong>
-            <p>{discoveredRule.text}</p>
+            <p>{discoveredRule.description}</p>
           </div>
         </aside>
       )}
 
-      {isPaused && (
-        <div className={styles.pauseOverlay} role="dialog" aria-modal="true" aria-labelledby="pause-title">
+      {failure && (
+        <div className={styles.pauseOverlay} role="dialog" aria-modal="true" aria-labelledby="failure-title">
           <div className={styles.pauseNote}>
-            <h2 id="pause-title">¡Pausa!</h2>
-            <p>Tu aventura te espera.</p>
-            <button type="button" onClick={() => setIsPaused(false)}>
-              <Play size={16} fill="currentColor" /> Seguir jugando
-            </button>
-          </div>
-        </div>
-      )}
-
-      {isGameOver && (
-        <div className={styles.pauseOverlay} role="dialog" aria-modal="true" aria-labelledby="timeout-title">
-          <div className={styles.pauseNote}>
-            <h2 id="timeout-title">¡Tiempo agotado!</h2>
-            <p>El mundo comenzará de nuevo.</p>
-            <button type="button" onClick={restartGame}>
-              <RotateCcw size={16} /> Reiniciar mundo
+            <h2 id="failure-title">{failure.title}</h2>
+            <p>{failure.message}</p>
+            {failure.violations.length > 0 && (
+              <ul className={styles.violations}>
+                {failure.violations.map((violation) => (
+                  <li key={violation.ruleKey}>{violation.message}</li>
+                ))}
+              </ul>
+            )}
+            <button type="button" onClick={() => void restartGame()} disabled={isRestarting}>
+              <RotateCcw size={16} /> {isRestarting ? 'Reiniciando…' : 'Reiniciar mundo'}
             </button>
           </div>
         </div>

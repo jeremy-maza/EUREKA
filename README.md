@@ -61,6 +61,28 @@ npm run dev:web               # Web   → http://localhost:5173
 > La API arranca aunque la base de datos no esté disponible (la conexión es perezosa); solo
 > `/api/health/ready` devolverá 503.
 
+## Frontend de la demo visual (`frontend/`)
+
+`frontend/` es la demo visual (React 19 + Vite + pnpm, fuera de los workspaces de npm) conectada a la misma API. Usa
+la API real para registro/login, mundos, progreso, sesión de juego, reto, reglas, puntuación, racha y cronómetro
+(el servidor decide todo; el frontend solo muestra). Como `apps/web`, usa el puerto 5173: arranca uno u otro.
+
+```bash
+# API + BD como arriba (incluido `npm run db:seed`), y luego:
+cd frontend
+cp .env.example .env.local    # VITE_API_URL=http://localhost:3000/api
+pnpm install
+pnpm dev                      # → http://localhost:5173 (debe coincidir con CORS_ORIGIN de la API)
+```
+
+| Variable       | Dónde    | Por defecto                 | Descripción                                            |
+| -------------- | -------- | --------------------------- | ------------------------------------------------------ |
+| `VITE_API_URL` | frontend | `http://localhost:3000/api` | URL base de la API (con `/api`)                        |
+| `CORS_ORIGIN`  | API      | `http://localhost:5173`     | Origen del frontend permitido por CORS (un solo valor) |
+
+Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `/juego`, `/final`. Sin botón de pausa: el
+cronómetro es del servidor y no se puede detener.
+
 ## Demo jugable
 
 1. **Crear cuenta** (`/registro`: nombre, correo y contraseña de 8+ caracteres) → entras automáticamente.

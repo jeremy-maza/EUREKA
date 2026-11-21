@@ -1,0 +1,37 @@
+.page {
+  width: min(1120px, calc(100% - 40px));
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 22px 0;
+}
+
+.note {
+  max-width: 420px;
+  margin: 18vh auto 0;
+  padding: 22px 30px;
+  border-radius: 20px;
+  color: #385868;
+  background: rgba(255, 248, 223, 0.96);
+  box-shadow: 0 8px 0 #dfc58e;
+  text-align: center;
+}
+
+.note h1 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.note p {
+  margin: 8px 0 0;
+  color: #667a81;
+}
+
+.note button {
+  margin-top: 16px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 14px;
+  color: white;
+  background: #ff963e;
+  font-weight: 900;
+}

@@ -8,7 +8,8 @@ import { API_PREFIX, configureApp } from './common/configure-app';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
-  app.enableCors({ origin: config.get<string>('CORS_ORIGIN') });
+  // `Retry-After` debe ser legible desde otro origen: el frontend lo muestra en los 429 (login limitado).
+  app.enableCors({ origin: config.get<string>('CORS_ORIGIN'), exposedHeaders: ['Retry-After'] });
   app.enableShutdownHooks();
   configureApp(app);
 
