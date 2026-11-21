@@ -80,7 +80,8 @@ pnpm dev                      # → http://localhost:5173 (debe coincidir con CO
 | `VITE_API_URL` | frontend | `http://localhost:3000/api` | URL base de la API (con `/api`)                        |
 | `CORS_ORIGIN`  | API      | `http://localhost:5173`     | Origen del frontend permitido por CORS (un solo valor) |
 
-Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `/juego`, `/final`. Sin botón de pausa: el
+Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `/juego`, `/final`, `/clasificaciones`
+(estudiantes; solo compañeros de grupo) y `/docente` (docentes; panel con estadísticas reales de sus grupos). Sin botón de pausa: el
 cronómetro es del servidor y no se puede detener.
 
 ## Demo jugable

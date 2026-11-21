@@ -24,6 +24,8 @@
   border: 1px solid transparent;
   border-radius: 14px;
   color: #607584;
+  background: transparent;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 800;
   transition: background 150ms ease, color 150ms ease, border-color 150ms ease;

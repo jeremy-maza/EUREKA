@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Flame, LogOut, Play, Sparkles, Trophy } from 'lucide-react'
 import { useAuth } from '@/features/auth/AuthContext'
 import { api, ApiError } from '@/shared/api/client'
@@ -39,6 +39,9 @@ export function HomePage() {
     void load()
   }, [isStudent, load])
 
+  // Los docentes no juegan: su pantalla principal es el panel.
+  if (user?.role === 'TEACHER') return <Navigate to="/docente" replace />
+
   if (isStudent && error) {
     return (
       <ScreenMessage title="No pudimos cargar tu aventura">
@@ -53,6 +56,7 @@ export function HomePage() {
       <header className={styles.header}>
         <Logo compact />
         <div className={styles.account}>
+          {isStudent && <Link to="/clasificaciones" className={styles.accountLink}><Trophy size={15} /> Clasificaciones</Link>}
           <span>{user?.displayName}</span>
           <button type="button" onClick={() => void logout()} aria-label="Cerrar sesión">
             <LogOut size={17} />

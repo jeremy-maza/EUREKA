@@ -21,6 +21,14 @@
   font-weight: 800;
 }
 
+.accountLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--leaf);
+  font-weight: 900;
+}
+
 .account button {
   display: grid;
   width: 39px;

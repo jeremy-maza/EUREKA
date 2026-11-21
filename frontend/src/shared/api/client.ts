@@ -2,7 +2,13 @@ import type {
   AccessToken,
   AnswerResult,
   ChallengeAttempt,
+  GroupStatistics,
+  Leaderboard,
   StartSessionResponse,
+  StudentAttemptPage,
+  StudentOverviewPage,
+  StudentStatistics,
+  TeacherDashboard,
   UserProfile,
   WorldProgress,
   WorldSummary,
@@ -107,6 +113,21 @@ export const api = {
   worlds: () => request<WorldSummary[]>('GET', '/worlds'),
   progress: () => request<WorldProgress[]>('GET', '/progress'),
   worldProgress: (slug: string) => request<WorldProgress>('GET', `/worlds/${slug}/progress`),
+
+  leaderboard: (slug: string, limit = 50) =>
+    request<Leaderboard>('GET', `/worlds/${slug}/leaderboard?limit=${limit}`),
+
+  teacherDashboard: () => request<TeacherDashboard>('GET', '/teacher/dashboard'),
+  groupStatistics: (groupId: string) => request<GroupStatistics>('GET', `/teacher/groups/${groupId}/statistics`),
+  groupStudents: (groupId: string, limit = 100) =>
+    request<StudentOverviewPage>('GET', `/teacher/groups/${groupId}/dashboard/students?limit=${limit}`),
+  studentStatistics: (groupId: string, studentId: string) =>
+    request<StudentStatistics>('GET', `/teacher/groups/${groupId}/students/${studentId}/statistics`),
+  studentAttempts: (groupId: string, studentId: string, limit = 100) =>
+    request<StudentAttemptPage>(
+      'GET',
+      `/teacher/groups/${groupId}/students/${studentId}/attempts?limit=${limit}`,
+    ),
 
   startSession: (slug: string) => request<StartSessionResponse>('POST', `/worlds/${slug}/sessions`),
   startAttempt: (sessionId: string) => request<ChallengeAttempt>('POST', `/sessions/${sessionId}/attempts`),

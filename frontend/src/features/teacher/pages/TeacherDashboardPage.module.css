@@ -563,6 +563,28 @@
 .support.statusWord::before { background: #df7967; }
 .watch.statusWord { color: #a27427; }
 .watch.statusWord::before { background: #e1b54e; }
+.none.statusWord { color: #8a948f; }
+.none.statusWord::before { background: #c5cbc6; }
+
+.emptyState {
+  margin: 12px 0;
+  color: #7d7868;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.groupSelect {
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid #e6bd64;
+  border-radius: 8px;
+  color: #7d7868;
+  background: #fffdf7;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+}
 
 .journey {
   position: relative;

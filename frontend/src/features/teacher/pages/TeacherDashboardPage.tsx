@@ -1,66 +1,46 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Check, Compass, Leaf, MapPin, Sprout } from 'lucide-react'
 import grasshopperIdle from '@/assets/grillo/grillo1.png'
 import { FloatingIsland } from '@/features/game/components/FloatingIsland'
+import { api, ApiError } from '@/shared/api/client'
+import type {
+  FailureReason,
+  GroupStatistics,
+  StudentAttempt,
+  StudentOverview,
+  StudentStatistics,
+  TeacherDashboard,
+} from '@/shared/api/types'
 import { InsightsHeader } from '@/shared/components/InsightsHeader'
-import {
-  demoTeacherStudents,
-  difficultyTopics,
-  getStudentAccuracy,
-  getStudentErrorCount,
-  getStudentStatus,
-  type DemoStudent,
-} from '@/features/teacher/data/demoTeacherData'
+import { ScreenMessage } from '@/shared/components/ScreenMessage'
 import styles from './TeacherDashboardPage.module.css'
 
-type StudentStatus = ReturnType<typeof getStudentStatus>
-type TopicName = typeof difficultyTopics[number]
+type StudentStatus = 'support' | 'watch' | 'good' | 'none'
 
-const topicLocations: { topic: TopicName; x: number; y: number }[] = [
-  { topic: 'Sumas', x: 13, y: 13 },
-  { topic: 'Restas', x: 43, y: 5 },
-  { topic: 'Multiplicaciones', x: 77, y: 13 },
-  { topic: 'Divisiones', x: 23, y: 45 },
-  { topic: 'Fracciones', x: 57, y: 41 },
-  { topic: 'Números negativos', x: 83, y: 49 },
-  { topic: 'Operaciones combinadas', x: 47, y: 68 },
+/** Las «islas» del mapa son los motivos de fallo que registra la API (no existe una taxonomía de temas). */
+const failureReasons: { reason: FailureReason; label: string; x: number; y: number }[] = [
+  { reason: 'WRONG_RESULT', label: 'Resultado erróneo', x: 13, y: 13 },
+  { reason: 'RULE_VIOLATION', label: 'Reglas incumplidas', x: 43, y: 5 },
+  { reason: 'TIMEOUT', label: 'Tiempo agotado', x: 77, y: 13 },
+  { reason: 'SYNTAX_ERROR', label: 'Sintaxis', x: 23, y: 45 },
+  { reason: 'CLAIMED_RESULT_MISMATCH', label: 'Resultado declarado', x: 57, y: 41 },
+  { reason: 'DIVISION_BY_ZERO', label: 'División entre cero', x: 83, y: 49 },
 ]
-
-const topicOperationMatchers: Record<TopicName, RegExp> = {
-  Sumas: /suma/i,
-  Restas: /resta/i,
-  Multiplicaciones: /multiplicación/i,
-  Divisiones: /división/i,
-  Fracciones: /fracciones/i,
-  'Números negativos': /negativos/i,
-  'Operaciones combinadas': /combinadas/i,
-}
 
 const statusLabels: Record<StudentStatus, string> = {
   support: 'Necesita apoyo',
   watch: 'En observación',
   good: 'Buen rendimiento',
+  none: 'Sin actividad',
 }
 
-const statusOrder: Record<StudentStatus, number> = { support: 0, watch: 1, good: 2 }
+const statusOrder: Record<StudentStatus, number> = { support: 0, watch: 1, good: 2, none: 3 }
 
-function getGroupMetrics() {
-  const topicTotals = difficultyTopics.map((topic) => ({
-    topic,
-    errors: demoTeacherStudents.reduce((total, student) => total + (student.topicErrors[topic] ?? 0), 0),
-  }))
-  const totalCorrect = demoTeacherStudents.reduce((total, student) => total + student.correctAnswers, 0)
-  const totalIncorrect = demoTeacherStudents.reduce((total, student) => total + student.incorrectAnswers, 0)
-  const studentsNeedingAttention = demoTeacherStudents.filter((student) => getStudentStatus(student) !== 'good').length
+const TRAIL_STAGES = 5
 
-  return {
-    topicTotals,
-    totalCorrect,
-    totalIncorrect,
-    studentsNeedingAttention,
-    overallAccuracy: Math.round((totalCorrect / (totalCorrect + totalIncorrect)) * 100),
-  }
-}
+const formatPercent = (value: number | null) => (value === null ? '—' : `${Math.round(value)}%`)
+
+const errorsOf = (student: StudentOverview) => student.totals.incorrect + student.totals.timeouts
 
 function getDifficulty(errors: number, maximum: number) {
   if (errors === 0 || errors / maximum < 0.3) return 'calm' as const
@@ -74,12 +54,36 @@ function getDifficultyLabel(level: ReturnType<typeof getDifficulty>) {
   return 'Buen dominio'
 }
 
-function LearningTrail({ student }: { student: DemoStudent }) {
-  const points = student.accuracyHistory
-    .map((accuracy, index) => `${20 + index * 70},${75 - accuracy * 0.58}`)
-    .join(' ')
-  const current = student.accuracyHistory[student.accuracyHistory.length - 1]
-  const previous = student.accuracyHistory[student.accuracyHistory.length - 2]
+/** Precisión por etapas, calculada con el historial real de intentos resueltos (del más antiguo al más reciente). */
+function getAccuracyHistory(attempts: StudentAttempt[]): number[] | null {
+  const resolved = attempts.filter((attempt) => attempt.outcome !== 'PENDING').reverse()
+  if (resolved.length < TRAIL_STAGES) return null
+  const stages = Array.from({ length: TRAIL_STAGES }, () => ({ correct: 0, total: 0 }))
+  resolved.forEach((attempt, index) => {
+    const stage = stages[Math.floor((index * TRAIL_STAGES) / resolved.length)]
+    stage.total += 1
+    if (attempt.outcome === 'CORRECT') stage.correct += 1
+  })
+  return stages.map((stage) => Math.round((stage.correct / stage.total) * 100))
+}
+
+function LearningTrail({ history, attemptCount }: { history: number[] | null; attemptCount: number }) {
+  if (!history) {
+    return (
+      <div className={styles.learningTrail}>
+        <div className={styles.trailHeading}>
+          <span><Compass size={14} /> Recorrido de precisión</span>
+        </div>
+        <p className={styles.emptyState}>
+          Aún no hay suficientes intentos ({attemptCount} de {TRAIL_STAGES}) para mostrar el recorrido.
+        </p>
+      </div>
+    )
+  }
+
+  const points = history.map((accuracy, index) => `${20 + index * 70},${75 - accuracy * 0.58}`).join(' ')
+  const current = history[history.length - 1]
+  const previous = history[history.length - 2]
   const improved = current >= previous
 
   return (
@@ -91,14 +95,14 @@ function LearningTrail({ student }: { student: DemoStudent }) {
           {current - previous > 0 ? '+' : ''}{current - previous} pts
         </strong>
       </div>
-      <svg viewBox="0 0 320 88" role="img" aria-label={`Precisión en cinco etapas: ${student.accuracyHistory.join(', ')} por ciento`}>
+      <svg viewBox="0 0 320 88" role="img" aria-label={`Precisión en cinco etapas: ${history.join(', ')} por ciento`}>
         <polyline points={points} className={styles.trailPath} />
-        {student.accuracyHistory.map((accuracy, index) => {
+        {history.map((accuracy, index) => {
           const x = 20 + index * 70
           const y = 75 - accuracy * 0.58
           return (
             <g key={`${accuracy}-${index}`}>
-              <circle cx={x} cy={y} r="9" className={index === student.accuracyHistory.length - 1 ? styles.currentTrailPoint : styles.trailPoint} />
+              <circle cx={x} cy={y} r="9" className={index === history.length - 1 ? styles.currentTrailPoint : styles.trailPoint} />
               <text x={x} y={y + 3} textAnchor="middle" className={styles.trailPointLabel}>{index + 1}</text>
             </g>
           )
@@ -109,49 +113,172 @@ function LearningTrail({ student }: { student: DemoStudent }) {
   )
 }
 
-export function TeacherDashboardPage() {
-  const [selectedId, setSelectedId] = useState(demoTeacherStudents[0].id)
-  const [selectedTopic, setSelectedTopic] = useState<TopicName>('Divisiones')
-  const metrics = getGroupMetrics()
-  const selectedStudent = demoTeacherStudents.find((student) => student.id === selectedId) ?? demoTeacherStudents[0]
-  const sortedStudents = [...demoTeacherStudents].sort((a, b) => {
-    const statusDifference = statusOrder[getStudentStatus(a)] - statusOrder[getStudentStatus(b)]
-    return statusDifference || getStudentErrorCount(b) - getStudentErrorCount(a)
-  })
-  const maximumTopicErrors = Math.max(...metrics.topicTotals.map(({ errors }) => errors), 1)
-  const selectedTopicErrors = demoTeacherStudents.reduce(
-    (total, student) => total + (student.topicErrors[selectedTopic] ?? 0),
-    0,
-  )
-  const topicFrequency = metrics.totalIncorrect === 0
-    ? 0
-    : Math.round((selectedTopicErrors / metrics.totalIncorrect) * 100)
-  const studentsByTopic = demoTeacherStudents
-    .map((student) => ({ student, errors: student.topicErrors[selectedTopic] ?? 0 }))
-    .filter(({ errors }) => errors > 0)
-    .sort((a, b) => b.errors - a.errors)
-  const operationsByTopic = new Map<string, number>()
+type GroupData = { statistics: GroupStatistics; students: StudentOverview[] }
+type StudentDetail = { statistics: StudentStatistics; attempts: StudentAttempt[] }
 
-  for (const student of demoTeacherStudents) {
-    for (const operation of student.operationErrors) {
-      if (topicOperationMatchers[selectedTopic].test(operation.label)) {
-        operationsByTopic.set(
-          operation.label,
-          (operationsByTopic.get(operation.label) ?? 0) + operation.count,
-        )
-      }
+const errorMessage = (error: unknown) =>
+  error instanceof ApiError ? error.message : 'No se pudo cargar la información.'
+
+export function TeacherDashboardPage() {
+  const [dashboard, setDashboard] = useState<TeacherDashboard | null>(null)
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
+  const [groupId, setGroupId] = useState<string | null>(null)
+  const [groupData, setGroupData] = useState<GroupData | null>(null)
+  const [groupError, setGroupError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedReason, setSelectedReason] = useState<FailureReason | null>(null)
+  const [detail, setDetail] = useState<StudentDetail | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
+
+  const loadDashboard = useCallback(async () => {
+    setDashboardError(null)
+    try {
+      const data = await api.teacherDashboard()
+      setDashboard(data)
+      setGroupId((current) => current ?? data.groups[0]?.group.id ?? null)
+    } catch (caught) {
+      setDashboardError(errorMessage(caught))
     }
+  }, [])
+
+  useEffect(() => {
+    void loadDashboard()
+  }, [loadDashboard])
+
+  useEffect(() => {
+    if (!groupId) return
+    let cancelled = false
+    setGroupData(null)
+    setGroupError(null)
+    setSelectedId(null)
+    setSelectedReason(null)
+    Promise.all([api.groupStatistics(groupId), api.groupStudents(groupId)])
+      .then(([statistics, students]) => {
+        if (cancelled) return
+        setGroupData({ statistics, students: students.items })
+        setSelectedId(students.items[0]?.student.id ?? null)
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setGroupError(errorMessage(caught))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [groupId])
+
+  useEffect(() => {
+    if (!groupId || !selectedId) return
+    let cancelled = false
+    setDetail(null)
+    setDetailError(null)
+    Promise.all([api.studentStatistics(groupId, selectedId), api.studentAttempts(groupId, selectedId)])
+      .then(([statistics, attempts]) => {
+        if (!cancelled) setDetail({ statistics, attempts: attempts.items })
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setDetailError(errorMessage(caught))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [groupId, selectedId])
+
+  const attentionIds = useMemo(
+    () => new Set(groupData?.statistics.studentsNeedingAttention.map((item) => item.student.id)),
+    [groupData],
+  )
+
+  if (dashboardError) {
+    return (
+      <ScreenMessage title="No pudimos cargar tu panel">
+        <p>{dashboardError}</p>
+        <button type="button" onClick={() => void loadDashboard()}>Reintentar</button>
+      </ScreenMessage>
+    )
+  }
+  if (!dashboard) return <ScreenMessage title="Cargando panel…" />
+
+  const currentGroup = dashboard.groups.find((item) => item.group.id === groupId)
+
+  if (!currentGroup) {
+    return (
+      <main className={styles.page}>
+        <InsightsHeader activePage="teacher" />
+        <div className={styles.content}>
+          <header className={styles.intro}>
+            <div>
+              <span className={styles.eyebrow}><Compass size={14} /> MAPA DEL BOSQUE NUMÉRICO</span>
+              <h1>Mapa de conocimientos</h1>
+              <p>Todavía no tienes grupos activos asignados. Pide a un administrador que te asigne uno.</p>
+            </div>
+          </header>
+        </div>
+      </main>
+    )
   }
 
-  const topOperations = [...operationsByTopic.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
-  const selectedTopicDifficulty = getDifficulty(selectedTopicErrors, maximumTopicErrors)
-  const masteredTopics = difficultyTopics.filter((topic) => (selectedStudent.topicErrors[topic] ?? 0) === 0)
-  const reinforcementTopics = difficultyTopics
-    .map((topic) => ({ topic, errors: selectedStudent.topicErrors[topic] ?? 0 }))
-    .filter(({ errors }) => errors > 0)
-    .sort((a, b) => b.errors - a.errors)
-  const accuracy = getStudentAccuracy(selectedStudent)
-  const studentStatus = getStudentStatus(selectedStudent)
+  const getStatus = (student: StudentOverview): StudentStatus => {
+    if (attentionIds.has(student.student.id)) return 'support'
+    const accuracy = student.totals.accuracyPercent
+    if (accuracy === null) return 'none'
+    return accuracy < 80 ? 'watch' : 'good'
+  }
+
+  const activity = currentGroup.activity
+  const students = groupData?.students ?? []
+  const statistics = groupData?.statistics
+  const sortedStudents = [...students].sort((a, b) => {
+    const statusDifference = statusOrder[getStatus(a)] - statusOrder[getStatus(b)]
+    return statusDifference || errorsOf(b) - errorsOf(a)
+  })
+  const selectedStudent = students.find((student) => student.student.id === selectedId) ?? null
+
+  const reasonTotals = failureReasons.map((item) => {
+    const matching = statistics?.commonErrors.filter((error) => error.reason === item.reason) ?? []
+    return { ...item, errors: matching.reduce((total, error) => total + error.count, 0) }
+  })
+  const totalReasonErrors = reasonTotals.reduce((total, item) => total + item.errors, 0)
+  const maximumReasonErrors = Math.max(...reasonTotals.map(({ errors }) => errors), 1)
+  const topReason = reasonTotals.reduce((top, item) => (item.errors > top.errors ? item : top), reasonTotals[0])
+  const activeReason = reasonTotals.find((item) => item.reason === selectedReason) ?? topReason
+  const reasonDifficulty = getDifficulty(activeReason.errors, maximumReasonErrors)
+  const reasonFrequency = totalReasonErrors === 0 ? 0 : Math.round((activeReason.errors / totalReasonErrors) * 100)
+  const attentionStudents = statistics?.studentsNeedingAttention.slice(0, 3) ?? []
+  const practiceItems = activeReason.reason === 'RULE_VIOLATION'
+    ? (statistics?.frequentlyViolatedRules ?? []).slice(0, 3).map((rule) => ({
+      key: rule.ruleKey,
+      label: rule.description ?? rule.ruleKey,
+      count: rule.violations,
+    }))
+    : (statistics?.challengesNeedingReinforcement ?? []).slice(0, 3).map((challenge) => ({
+      key: `${challenge.worldSlug}-${challenge.position}`,
+      label: `Reto ${challenge.position} · ${challenge.expression}`,
+      count: challenge.failures,
+    }))
+
+  const detailWorlds = detail?.statistics.worlds ?? []
+  const masteredChallenges = detailWorlds.flatMap((world) =>
+    world.challenges.filter((challenge) => challenge.attempts > 0 && challenge.failures === 0),
+  )
+  const reinforcement = [
+    ...detailWorlds.flatMap((world) =>
+      world.violatedRules.map((rule) => ({
+        key: `rule-${rule.ruleKey}`,
+        label: rule.description ?? rule.ruleKey,
+        count: rule.violations,
+      })),
+    ),
+    ...detailWorlds.flatMap((world) =>
+      world.challenges
+        .filter((challenge) => challenge.failures > 0)
+        .map((challenge) => ({
+          key: `challenge-${world.worldSlug}-${challenge.position}`,
+          label: `Reto ${challenge.position}`,
+          count: challenge.failures,
+        })),
+    ),
+  ].sort((a, b) => b.count - a.count).slice(0, 6)
+  const studentStatus = selectedStudent ? getStatus(selectedStudent) : 'none'
 
   return (
     <main className={styles.page}>
@@ -164,171 +291,210 @@ export function TeacherDashboardPage() {
             <p>Explora las islas y descubre dónde acompañar el próximo aprendizaje.</p>
           </div>
           <div className={styles.demoSign}>
-            <span>MUESTRA DE EXPLORACIÓN</span>
-            <strong>Datos ficticios · no son resultados reales</strong>
+            <span>GRUPO</span>
+            {dashboard.groups.length > 1
+              ? (
+                <select
+                  className={styles.groupSelect}
+                  value={currentGroup.group.id}
+                  onChange={(event) => setGroupId(event.target.value)}
+                  aria-label="Grupo"
+                >
+                  {dashboard.groups.map(({ group }) => (
+                    <option key={group.id} value={group.id}>{group.name}</option>
+                  ))}
+                </select>
+              )
+              : <strong>{currentGroup.group.name}</strong>}
           </div>
         </header>
 
-        <div className={styles.groupTrail} aria-label="Resumen de demostración">
-          <span><i className={styles.groupMarker} />{demoTeacherStudents.length} aprendices</span>
-          <span><i className={styles.errorMarker} />{metrics.totalIncorrect} errores revisados</span>
-          <span><i className={styles.accuracyMarker} />{metrics.overallAccuracy}% precisión de muestra</span>
+        <div className={styles.groupTrail} aria-label="Resumen del grupo">
+          <span><i className={styles.groupMarker} />{activity.studentCount} aprendices</span>
+          <span><i className={styles.errorMarker} />{activity.totals.incorrect + activity.totals.timeouts} errores revisados</span>
+          <span><i className={styles.accuracyMarker} />{formatPercent(activity.totals.accuracyPercent)} precisión del grupo</span>
         </div>
 
-        <section className={styles.mapSection} aria-labelledby="map-title">
-          <div className={styles.mapHeading}>
-            <div>
-              <span className={styles.eyebrow}>RECORRIDO DEL GRUPO</span>
-              <h2 id="map-title">Islas de aprendizaje</h2>
-            </div>
-            <span className={styles.mapHint}>Selecciona una isla para inspeccionar sus huellas</span>
-          </div>
+        {groupError && <p className={styles.emptyState} role="alert">{groupError}</p>}
+        {!groupData && !groupError && <p className={styles.emptyState} role="status">Cargando el grupo…</p>}
 
-          <div className={styles.mapArea}>
-            <svg className={styles.mapTrail} viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true">
-              <path d="M130 160 C245 45 330 65 430 115 S660 80 770 160 S670 285 570 300 S365 275 230 355 S395 468 470 475" />
-              <circle cx="130" cy="160" r="5" /><circle cx="430" cy="115" r="5" />
-              <circle cx="770" cy="160" r="5" /><circle cx="230" cy="355" r="5" />
-              <circle cx="570" cy="300" r="5" /><circle cx="830" cy="350" r="5" />
-              <circle cx="470" cy="475" r="5" />
-            </svg>
-            <span className={`${styles.mapCloud} ${styles.mapCloudOne}`} aria-hidden="true" />
-            <span className={`${styles.mapCloud} ${styles.mapCloudTwo}`} aria-hidden="true" />
-            {topicLocations.map(({ topic, x, y }) => {
-              const errors = metrics.topicTotals.find((item) => item.topic === topic)?.errors ?? 0
-              const difficulty = getDifficulty(errors, maximumTopicErrors)
-              const isSelected = selectedTopic === topic
-              return (
-                <button
-                  type="button"
-                  key={topic}
-                  className={`${styles.topicIsland} ${styles[difficulty]} ${isSelected ? styles.selectedIsland : ''}`}
-                  style={{ left: `${x}%`, top: `${y}%` }}
-                  onClick={() => setSelectedTopic(topic)}
-                  aria-pressed={isSelected}
-                  aria-label={`${topic}: ${errors} errores, ${getDifficultyLabel(difficulty)}. Abrir detalle`}
-                >
-                  <span className={styles.topicSign}>
-                    <strong>{topic}</strong>
-                    <span>{difficulty === 'calm' ? <Leaf size={13} /> : <AlertTriangle size={13} />}{getDifficultyLabel(difficulty)}</span>
-                    <b>{errors} <small>errores</small></b>
-                  </span>
-                  <FloatingIsland className={styles.mapIslandArt} top={47} />
-                  <span className={styles.mapPin} aria-hidden="true" />
-                </button>
-              )
-            })}
-            <div className={styles.mapGround} aria-hidden="true"><span /><span /><span /><span /><span /></div>
-          </div>
-
-          <aside className={styles.topicNotes} aria-live="polite" aria-labelledby="topic-note-title">
-            <div className={styles.noteHeading}>
-              <span className={styles.notePin}><MapPin size={17} /></span>
-              <div>
-                <span className={styles.eyebrow}>REGISTRO DE CAMPO · DEMO</span>
-                <h3 id="topic-note-title">{selectedTopic}</h3>
-                <span className={`${styles.topicCondition} ${styles[selectedTopicDifficulty]}`}>
-                  {getDifficultyLabel(selectedTopicDifficulty)}
-                </span>
-              </div>
-              <strong className={styles.noteErrors}>{selectedTopicErrors}<small> errores</small></strong>
-            </div>
-            <div className={styles.noteColumns}>
-              <p className={styles.frequencyText}>
-                <span>Frecuencia en los errores del grupo</span>
-                <strong>{topicFrequency}%</strong>
-              </p>
-              <div className={styles.noteList}>
-                <strong>Aprendices con más tropiezos</strong>
-                {studentsByTopic.length === 0
-                  ? <span>Sin errores registrados en esta muestra.</span>
-                  : studentsByTopic.slice(0, 3).map(({ student, errors }) => (
-                    <span key={student.id}>{student.name}<b>{errors}</b></span>
-                  ))}
-              </div>
-              <div className={styles.noteList}>
-                <strong>Operaciones a practicar</strong>
-                {topOperations.length === 0
-                  ? <span>Sin operaciones asociadas.</span>
-                  : topOperations.map(([operation, count]) => (
-                    <span key={operation}>{operation}<b>{count}</b></span>
-                  ))}
-              </div>
-            </div>
-          </aside>
-        </section>
-
-        <section className={styles.explorersSection} aria-labelledby="explorers-title">
-          <div className={styles.explorersHeading}>
-            <span className={styles.eyebrow}><Sprout size={14} /> CAMINOS PERSONALES</span>
-            <h2 id="explorers-title">Recorridos de aprendizaje</h2>
-            <p>Elige un aprendiz para explorar sus avances y próximos pasos.</p>
-          </div>
-
-          <div className={styles.explorerLayout}>
-            <nav className={styles.explorerList} aria-label="Aprendices de demostración">
-              {sortedStudents.map((student) => {
-                const status = getStudentStatus(student)
-                return (
-                  <button
-                    type="button"
-                    key={student.id}
-                    className={`${styles.explorer} ${selectedStudent.id === student.id ? styles.selectedExplorer : ''}`}
-                    onClick={() => setSelectedId(student.id)}
-                    aria-pressed={selectedStudent.id === student.id}
-                  >
-                    <span className={styles.explorerInitial}>{student.name.charAt(0)}</span>
-                    <span className={styles.explorerInfo}>
-                      <strong>{student.name}</strong>
-                      <small>{getStudentErrorCount(student)} errores · {getStudentAccuracy(student)}%</small>
-                    </span>
-                    <span className={`${styles.statusWord} ${styles[status]}`}>{statusLabels[status]}</span>
-                  </button>
-                )
-              })}
-            </nav>
-
-            <article className={styles.journey} aria-labelledby="student-journey-title">
-              <div className={styles.journeyHeader}>
-                <img src={grasshopperIdle} alt="" />
+        {groupData && (
+          <>
+            <section className={styles.mapSection} aria-labelledby="map-title">
+              <div className={styles.mapHeading}>
                 <div>
-                  <span className={styles.eyebrow}>AVENTURA INDIVIDUAL · DEMO</span>
-                  <h3 id="student-journey-title">{selectedStudent.name}</h3>
+                  <span className={styles.eyebrow}>RECORRIDO DEL GRUPO</span>
+                  <h2 id="map-title">Islas de aprendizaje</h2>
                 </div>
-                <span className={`${styles.statusWord} ${styles[studentStatus]}`}>{statusLabels[studentStatus]}</span>
+                <span className={styles.mapHint}>Selecciona una isla para inspeccionar sus huellas</span>
               </div>
 
-              <div className={styles.journeyStats}>
-                <span><b>{selectedStudent.correctAnswers + selectedStudent.incorrectAnswers}</b> preguntas</span>
-                <span><b className={styles.rightAnswer}>{selectedStudent.correctAnswers}</b> aciertos</span>
-                <span><b className={styles.missedAnswer}>{selectedStudent.incorrectAnswers}</b> errores</span>
-                <span><b>{accuracy}%</b> precisión</span>
+              <div className={styles.mapArea}>
+                <svg className={styles.mapTrail} viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M130 160 C245 45 330 65 430 115 S660 80 770 160 S670 285 570 300 S365 275 230 355 S395 468 470 475" />
+                  <circle cx="130" cy="160" r="5" /><circle cx="430" cy="115" r="5" />
+                  <circle cx="770" cy="160" r="5" /><circle cx="230" cy="355" r="5" />
+                  <circle cx="570" cy="300" r="5" /><circle cx="830" cy="350" r="5" />
+                  <circle cx="470" cy="475" r="5" />
+                </svg>
+                <span className={`${styles.mapCloud} ${styles.mapCloudOne}`} aria-hidden="true" />
+                <span className={`${styles.mapCloud} ${styles.mapCloudTwo}`} aria-hidden="true" />
+                {reasonTotals.map(({ reason, label, x, y, errors }) => {
+                  const difficulty = getDifficulty(errors, maximumReasonErrors)
+                  const isSelected = activeReason.reason === reason
+                  return (
+                    <button
+                      type="button"
+                      key={reason}
+                      className={`${styles.topicIsland} ${styles[difficulty]} ${isSelected ? styles.selectedIsland : ''}`}
+                      style={{ left: `${x}%`, top: `${y}%` }}
+                      onClick={() => setSelectedReason(reason)}
+                      aria-pressed={isSelected}
+                      aria-label={`${label}: ${errors} errores, ${getDifficultyLabel(difficulty)}. Abrir detalle`}
+                    >
+                      <span className={styles.topicSign}>
+                        <strong>{label}</strong>
+                        <span>{difficulty === 'calm' ? <Leaf size={13} /> : <AlertTriangle size={13} />}{getDifficultyLabel(difficulty)}</span>
+                        <b>{errors} <small>errores</small></b>
+                      </span>
+                      <FloatingIsland className={styles.mapIslandArt} top={47} />
+                      <span className={styles.mapPin} aria-hidden="true" />
+                    </button>
+                  )
+                })}
+                <div className={styles.mapGround} aria-hidden="true"><span /><span /><span /><span /><span /></div>
               </div>
 
-              <LearningTrail student={selectedStudent} />
-
-              <div className={styles.learningTopics}>
-                <div className={styles.mastered}>
-                  <h4><Check size={14} /> Islas dominadas</h4>
+              <aside className={styles.topicNotes} aria-live="polite" aria-labelledby="topic-note-title">
+                <div className={styles.noteHeading}>
+                  <span className={styles.notePin}><MapPin size={17} /></span>
                   <div>
-                    {masteredTopics.length === 0
-                      ? <span className={styles.noTopic}>Aún no hay temas sin errores en la muestra.</span>
-                      : masteredTopics.map((topic) => <span key={topic}>{topic}</span>)}
+                    <span className={styles.eyebrow}>REGISTRO DE CAMPO</span>
+                    <h3 id="topic-note-title">{activeReason.label}</h3>
+                    <span className={`${styles.topicCondition} ${styles[reasonDifficulty]}`}>
+                      {getDifficultyLabel(reasonDifficulty)}
+                    </span>
+                  </div>
+                  <strong className={styles.noteErrors}>{activeReason.errors}<small> errores</small></strong>
+                </div>
+                <div className={styles.noteColumns}>
+                  <p className={styles.frequencyText}>
+                    <span>Frecuencia en los errores del grupo</span>
+                    <strong>{reasonFrequency}%</strong>
+                  </p>
+                  <div className={styles.noteList}>
+                    <strong>Aprendices que necesitan apoyo</strong>
+                    {attentionStudents.length === 0
+                      ? <span>Ningún aprendiz marcado por ahora.</span>
+                      : attentionStudents.map((item) => (
+                        <span key={item.student.id}>{item.student.displayName}<b>{formatPercent(item.accuracyPercent)}</b></span>
+                      ))}
+                  </div>
+                  <div className={styles.noteList}>
+                    <strong>{activeReason.reason === 'RULE_VIOLATION' ? 'Reglas a practicar' : 'Retos a reforzar'}</strong>
+                    {practiceItems.length === 0
+                      ? <span>Sin elementos para reforzar.</span>
+                      : practiceItems.map((item) => (
+                        <span key={item.key}>{item.label}<b>{item.count}</b></span>
+                      ))}
                   </div>
                 </div>
-                <div className={styles.needsPractice}>
-                  <h4><AlertTriangle size={14} /> Próximos pasos</h4>
-                  <div>
-                    {reinforcementTopics.map(({ topic, errors }) => (
-                      <span key={topic}>{topic}<b>{errors}</b></span>
-                    ))}
-                  </div>
-                </div>
+              </aside>
+            </section>
+
+            <section className={styles.explorersSection} aria-labelledby="explorers-title">
+              <div className={styles.explorersHeading}>
+                <span className={styles.eyebrow}><Sprout size={14} /> CAMINOS PERSONALES</span>
+                <h2 id="explorers-title">Recorridos de aprendizaje</h2>
+                <p>Elige un aprendiz para explorar sus avances y próximos pasos.</p>
               </div>
-              <p className={styles.demoFootnote}>Este recorrido es una muestra ficticia y no representa el progreso real de una persona.</p>
-            </article>
-          </div>
-        </section>
+
+              {students.length === 0
+                ? <p className={styles.emptyState}>Este grupo todavía no tiene estudiantes.</p>
+                : (
+                  <div className={styles.explorerLayout}>
+                    <nav className={styles.explorerList} aria-label="Aprendices del grupo">
+                      {sortedStudents.map((student) => {
+                        const status = getStatus(student)
+                        return (
+                          <button
+                            type="button"
+                            key={student.student.id}
+                            className={`${styles.explorer} ${selectedId === student.student.id ? styles.selectedExplorer : ''}`}
+                            onClick={() => setSelectedId(student.student.id)}
+                            aria-pressed={selectedId === student.student.id}
+                          >
+                            <span className={styles.explorerInitial}>{student.student.displayName.charAt(0)}</span>
+                            <span className={styles.explorerInfo}>
+                              <strong>{student.student.displayName}</strong>
+                              <small>{errorsOf(student)} errores · {formatPercent(student.totals.accuracyPercent)}</small>
+                            </span>
+                            <span className={`${styles.statusWord} ${styles[status]}`}>{statusLabels[status]}</span>
+                          </button>
+                        )
+                      })}
+                    </nav>
+
+                    {selectedStudent && (
+                      <article className={styles.journey} aria-labelledby="student-journey-title">
+                        <div className={styles.journeyHeader}>
+                          <img src={grasshopperIdle} alt="" />
+                          <div>
+                            <span className={styles.eyebrow}>AVENTURA INDIVIDUAL</span>
+                            <h3 id="student-journey-title">{selectedStudent.student.displayName}</h3>
+                          </div>
+                          <span className={`${styles.statusWord} ${styles[studentStatus]}`}>{statusLabels[studentStatus]}</span>
+                        </div>
+
+                        <div className={styles.journeyStats}>
+                          <span><b>{selectedStudent.totals.correct + errorsOf(selectedStudent)}</b> preguntas</span>
+                          <span><b className={styles.rightAnswer}>{selectedStudent.totals.correct}</b> aciertos</span>
+                          <span><b className={styles.missedAnswer}>{errorsOf(selectedStudent)}</b> errores</span>
+                          <span><b>{formatPercent(selectedStudent.totals.accuracyPercent)}</b> precisión</span>
+                        </div>
+
+                        {detailError && <p className={styles.emptyState} role="alert">{detailError}</p>}
+                        {!detail && !detailError && <p className={styles.emptyState} role="status">Cargando recorrido…</p>}
+
+                        {detail && (
+                          <>
+                            <LearningTrail
+                              history={getAccuracyHistory(detail.attempts)}
+                              attemptCount={detail.attempts.filter((attempt) => attempt.outcome !== 'PENDING').length}
+                            />
+
+                            <div className={styles.learningTopics}>
+                              <div className={styles.mastered}>
+                                <h4><Check size={14} /> Islas dominadas</h4>
+                                <div>
+                                  {masteredChallenges.length === 0
+                                    ? <span className={styles.noTopic}>Aún no hay retos resueltos sin errores.</span>
+                                    : masteredChallenges.map((challenge) => (
+                                      <span key={`${challenge.worldSlug}-${challenge.position}`}>Reto {challenge.position}</span>
+                                    ))}
+                                </div>
+                              </div>
+                              <div className={styles.needsPractice}>
+                                <h4><AlertTriangle size={14} /> Próximos pasos</h4>
+                                <div>
+                                  {reinforcement.length === 0
+                                    ? <span className={styles.noTopic}>Sin errores registrados.</span>
+                                    : reinforcement.map((item) => (
+                                      <span key={item.key}>{item.label}<b>{item.count}</b></span>
+                                    ))}
+                                </div>
+                              </div>
+                            </div>
+                            <p className={styles.demoFootnote}>El recorrido usa los intentos más recientes registrados en el juego.</p>
+                          </>
+                        )}
+                      </article>
+                    )}
+                  </div>
+                )}
+            </section>
+          </>
+        )}
       </div>
     </main>
   )
