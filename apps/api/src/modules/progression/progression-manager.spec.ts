@@ -22,17 +22,20 @@ describe('ProgressionManager', () => {
     });
   });
 
-  it('presentar un reto desbloquea la regla que introduce, una sola vez', () => {
-    const first = manager.beginChallenge(initial, arithmeticWorld);
+  it('presentar un reto incluye su regla como activa pero NO la desbloquea', () => {
+    const first = manager.presentChallenge(initial, arithmeticWorld);
     expect(first.challenge.id).toBe('arithmetic-001');
-    expect(first.state.unlockedRuleIds).toEqual([]); // el reto 1 no introduce reglas
+    expect(first.activeRules).toEqual([]); // el reto 1 no introduce reglas
 
-    const atTwo = { ...first.state, currentPosition: 2 };
-    const second = manager.beginChallenge(atTwo, arithmeticWorld);
-    expect(second.state.unlockedRuleIds).toEqual(['arithmetic.forbidden-digit-2']);
-    expect(manager.beginChallenge(second.state, arithmeticWorld).state.unlockedRuleIds).toEqual(
-      second.state.unlockedRuleIds,
-    );
+    const atTwo = { ...initial, currentPosition: 2 };
+    const second = manager.presentChallenge(atTwo, arithmeticWorld);
+    expect(second.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
+    expect(atTwo.unlockedRuleIds).toEqual([]);
+  });
+
+  it('no duplica la regla del reto si ya estaba desbloqueada (reintento tras reinicio)', () => {
+    const state = { ...initial, currentPosition: 2, unlockedRuleIds: ['arithmetic.forbidden-digit-2'] };
+    expect(manager.presentChallenge(state, arithmeticWorld).activeRules).toHaveLength(1);
   });
 
   it('las reglas activas se devuelven como definiciones, en orden de desbloqueo', () => {
@@ -61,7 +64,7 @@ describe('ProgressionManager', () => {
     const last = { ...initial, currentPosition: arithmeticWorld.challenges.length };
     const done = manager.recordCorrect(last, award(4, 100), arithmeticWorld);
     expect(done.status).toBe('COMPLETED');
-    expect(() => manager.beginChallenge(done, arithmeticWorld)).toThrow(ProgressionError);
+    expect(() => manager.presentChallenge(done, arithmeticWorld)).toThrow(ProgressionError);
   });
 
   describe('reiniciar la SECUENCIA (fallo) ≠ reiniciar el MUNDO', () => {

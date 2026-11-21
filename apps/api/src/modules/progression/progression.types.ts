@@ -1,4 +1,4 @@
-import { ChallengeDefinition } from '../challenges';
+import { ChallengeDefinition, RuleDefinition } from '../challenges';
 
 export type WorldProgressStatus = 'IN_PROGRESS' | 'COMPLETED';
 
@@ -15,12 +15,16 @@ export interface WorldProgressState {
   bestStreak: number;
   /** Puntos acumulados; nunca disminuyen. */
   totalPoints: number;
-  /** Ids de reglas desbloqueadas, en orden de desbloqueo. Persisten entre fallos y sesiones. */
+  /**
+   * Ids de reglas desbloqueadas, en orden de desbloqueo. Una regla se desbloquea al COMPLETAR con éxito
+   * el reto que la introduce; persisten entre fallos, reinicios de secuencia y sesiones.
+   */
   unlockedRuleIds: readonly string[];
   status: WorldProgressStatus;
 }
 
-export interface BegunChallenge {
-  state: WorldProgressState;
+export interface PresentedChallenge {
   challenge: ChallengeDefinition;
+  /** Reglas que aplican a este intento: las desbloqueadas + la que introduce el reto (si aún no lo está). */
+  activeRules: readonly RuleDefinition[];
 }

@@ -3,7 +3,10 @@ import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import gameConfig from './config/game.config';
 import { HealthModule } from './health/health.module';
+import { CommonModule } from './common';
+import { AuthModule } from './modules/auth';
 import { GameModule } from './modules/game';
+import { UsersModule } from './modules/users';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -15,7 +18,10 @@ import { PrismaModule } from './prisma/prisma.module';
       load: [gameConfig],
     }),
     PrismaModule,
+    CommonModule,
     HealthModule,
+    UsersModule,
+    AuthModule,
     GameModule,
   ],
 })

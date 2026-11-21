@@ -61,6 +61,7 @@ model User {
   worldProgress      StudentWorldProgress[]
   gameSessions       GameSession[]
   attempts           ChallengeAttempt[]
+  worldStatistics    WorldStatistics[]
   scoreTransactions  ScoreTransaction[]
 
   @@map("users")
@@ -128,6 +129,8 @@ model World {
   progress   StudentWorldProgress[]
   sessions   GameSession[]
   scores     ScoreTransaction[]
+  attempts   ChallengeAttempt[]
+  statistics WorldStatistics[]
 
   @@map("worlds")
 }
@@ -155,6 +158,8 @@ model Rule {
 model Challenge {
   id                String   @id @default(uuid(7)) @db.Uuid
   worldId           String   @db.Uuid
+  /// Identificador estable del reto en el catálogo, p. ej. "arithmetic-002".
+  key               String
   /// Posición (1-based) dentro de la secuencia del mundo.
   position          Int
   /// Expresión mostrada al jugador, p. ej. "3 * 7".
@@ -173,6 +178,7 @@ model Challenge {
   attempts       ChallengeAttempt[]
 
   @@unique([worldId, position])
+  @@unique([worldId, key])
   @@map("challenges")
 }
 
@@ -239,6 +245,8 @@ model ChallengeAttempt {
   sessionId        String                @db.Uuid
   /// Denormalizado desde la sesión para consultas por estudiante/reto.
   userId           String                @db.Uuid
+  /// Denormalizado desde el reto: permite garantizar un único intento PENDING por (usuario, mundo).
+  worldId          String                @db.Uuid
   challengeId      String                @db.Uuid
   outcome          AttemptOutcome        @default(PENDING)
   failureReason    AttemptFailureReason?
@@ -251,19 +259,28 @@ model ChallengeAttempt {
   timeLimitSeconds Int
   startedAt        DateTime              @default(now())
   deadlineAt       DateTime
+  /// Solo si hubo envío a tiempo; un timeout cerrado por el servidor no tiene `submittedAt`.
   submittedAt      DateTime?
+  /// Milisegundos entre `startedAt` y el envío (reloj del servidor).
+  elapsedMs        Int?
   streakBefore     Int
+  /// Mensaje de resultado mostrado al jugador (permite devolver idéntica respuesta ante un reenvío).
+  resultMessage    String?
+  /// Clave de la regla que este acierto desbloqueó (null si ninguna o ya estaba desbloqueada).
+  unlockedRuleKey  String?
   pointsAwarded    Int                   @default(0)
   /// Violaciones de reglas detectadas (JSON estructurado).
   violations       Json?
 
   session          GameSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world            World             @relation(fields: [worldId], references: [id], onDelete: Restrict)
   challenge        Challenge         @relation(fields: [challengeId], references: [id], onDelete: Restrict)
   scoreTransaction ScoreTransaction?
 
   @@index([sessionId])
   @@index([userId, challengeId])
+  @@index([userId, worldId, startedAt])
   @@map("challenge_attempts")
 }
 
@@ -287,4 +304,27 @@ model ScoreTransaction {
 
   @@index([userId, worldId])
   @@map("score_transactions")
+}
+
+/// Agregados por (estudiante, mundo), actualizados en la MISMA transacción que resuelve cada intento.
+/// Son derivables de `ChallengeAttempt`; se materializan para consultas rápidas y futura dificultad adaptativa.
+model WorldStatistics {
+  id                    String   @id @default(uuid(7)) @db.Uuid
+  userId                String   @db.Uuid
+  worldId               String   @db.Uuid
+  attemptsCount         Int      @default(0)
+  correctCount          Int      @default(0)
+  incorrectCount        Int      @default(0)
+  timeoutCount          Int      @default(0)
+  /// Suma de `elapsedMs` de los aciertos (tiempo medio = total / correctCount).
+  totalCorrectElapsedMs Int      @default(0)
+  /// Veces que se incumplió cada regla: { "<ruleKey>": n }.
+  ruleViolationCounts   Json     @default("{}")
+  updatedAt             DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, worldId])
+  @@map("world_statistics")
 }

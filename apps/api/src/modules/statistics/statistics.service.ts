@@ -1,0 +1,76 @@
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client';
+import { DbClient, PrismaService } from '../../prisma/prisma.service';
+
+export interface RecordAttemptStats {
+  userId: string;
+  worldId: string;
+  outcome: 'CORRECT' | 'INCORRECT' | 'TIMEOUT';
+  elapsedMs: number | null;
+  violatedRuleKeys: readonly string[];
+}
+
+export interface WorldStatisticsSnapshot {
+  attemptsCount: number;
+  correctCount: number;
+  incorrectCount: number;
+  timeoutCount: number;
+  /** Tiempo medio de los aciertos (ms), o null si aún no hay aciertos. */
+  averageCorrectElapsedMs: number | null;
+  ruleViolationCounts: Record<string, number>;
+}
+
+const EMPTY: WorldStatisticsSnapshot = {
+  attemptsCount: 0,
+  correctCount: 0,
+  incorrectCount: 0,
+  timeoutCount: 0,
+  averageCorrectElapsedMs: null,
+  ruleViolationCounts: {},
+};
+
+/** Agregados por (jugador, mundo), actualizados dentro de la transacción que resuelve cada intento. */
+@Injectable()
+export class StatisticsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async recordAttempt(tx: DbClient, input: RecordAttemptStats): Promise<void> {
+    const where = { userId_worldId: { userId: input.userId, worldId: input.worldId } };
+    const current = await tx.worldStatistics.findUnique({ where });
+    const violations = { ...((current?.ruleViolationCounts as Record<string, number> | null) ?? {}) };
+    for (const key of input.violatedRuleKeys) violations[key] = (violations[key] ?? 0) + 1;
+
+    const data = {
+      attemptsCount: (current?.attemptsCount ?? 0) + 1,
+      correctCount: (current?.correctCount ?? 0) + (input.outcome === 'CORRECT' ? 1 : 0),
+      incorrectCount: (current?.incorrectCount ?? 0) + (input.outcome === 'INCORRECT' ? 1 : 0),
+      timeoutCount: (current?.timeoutCount ?? 0) + (input.outcome === 'TIMEOUT' ? 1 : 0),
+      totalCorrectElapsedMs:
+        (current?.totalCorrectElapsedMs ?? 0) + (input.outcome === 'CORRECT' ? (input.elapsedMs ?? 0) : 0),
+      ruleViolationCounts: violations as Prisma.InputJsonValue,
+    };
+    await tx.worldStatistics.upsert({
+      where,
+      create: { userId: input.userId, worldId: input.worldId, ...data },
+      update: data,
+    });
+  }
+
+  async get(
+    userId: string,
+    worldId: string,
+    db: DbClient | PrismaService = this.prisma,
+  ): Promise<WorldStatisticsSnapshot> {
+    const row = await db.worldStatistics.findUnique({ where: { userId_worldId: { userId, worldId } } });
+    if (!row) return { ...EMPTY };
+    return {
+      attemptsCount: row.attemptsCount,
+      correctCount: row.correctCount,
+      incorrectCount: row.incorrectCount,
+      timeoutCount: row.timeoutCount,
+      averageCorrectElapsedMs:
+        row.correctCount > 0 ? Math.round(row.totalCorrectElapsedMs / row.correctCount) : null,
+      ruleViolationCounts: row.ruleViolationCounts as Record<string, number>,
+    };
+  }
+}

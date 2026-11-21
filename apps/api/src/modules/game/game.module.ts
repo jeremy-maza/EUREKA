@@ -3,14 +3,24 @@ import { ConfigType } from '@nestjs/config';
 import gameConfig from '../../config/game.config';
 import { ChallengeEngine, ChallengesModule } from '../challenges';
 import { ProgressionManager, ProgressionModule } from '../progression';
+import { StatisticsModule } from '../statistics';
 import { ScoringEngine, ScoringModule } from '../scoring';
 import { WorldsModule } from '../worlds';
+import { GameController } from './game.controller';
 import { GameEngine } from './game-engine';
+import { GameService } from './game.service';
+import { PlayerStateController } from './player-state.controller';
+import { PlayerStateService } from './player-state.service';
+import { ProgressViewBuilder } from './progress-view.builder';
 import { TimerManager } from './timer-manager';
 
 @Module({
-  imports: [ChallengesModule, ProgressionModule, ScoringModule, WorldsModule],
+  imports: [ChallengesModule, ProgressionModule, ScoringModule, StatisticsModule, WorldsModule],
+  controllers: [GameController, PlayerStateController],
   providers: [
+    GameService,
+    PlayerStateService,
+    ProgressViewBuilder,
     {
       provide: TimerManager,
       useFactory: (config: ConfigType<typeof gameConfig>) => new TimerManager(config.timer),

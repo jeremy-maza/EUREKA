@@ -6,6 +6,7 @@ import {
   ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Public } from '../common';
 import { HealthService } from './health.service';
 
 class LivenessResponse {
@@ -20,6 +21,7 @@ class ReadinessResponse {
 }
 
 @ApiTags('health')
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}

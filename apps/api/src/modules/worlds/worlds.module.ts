@@ -2,12 +2,18 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { ChallengeEngine, ChallengesModule, RuleEngine } from '../challenges';
 import { arithmeticWorld } from './catalog/arithmetic.world';
 import { validateWorldDefinition } from './world-validator';
+import { WorldsController } from './worlds.controller';
+import { WorldsRepository } from './worlds.repository';
 import { WorldCatalog } from './worlds.service';
 
 @Module({
   imports: [ChallengesModule],
-  providers: [{ provide: WorldCatalog, useFactory: () => new WorldCatalog([arithmeticWorld]) }],
-  exports: [WorldCatalog],
+  controllers: [WorldsController],
+  providers: [
+    { provide: WorldCatalog, useFactory: () => new WorldCatalog([arithmeticWorld]) },
+    WorldsRepository,
+  ],
+  exports: [WorldCatalog, WorldsRepository],
 })
 export class WorldsModule implements OnModuleInit {
   constructor(

@@ -25,18 +25,33 @@ describe('buildGameConfig', () => {
 });
 
 describe('validateEnv', () => {
+  const SECRET = 'x'.repeat(32);
+
   it('exige DATABASE_URL fuera de tests', () => {
-    expect(() => validateEnv({ NODE_ENV: 'development' })).toThrow(/DATABASE_URL/);
-    expect(validateEnv({ NODE_ENV: 'test' }).PORT).toBe(3000);
+    expect(() => validateEnv({ NODE_ENV: 'development', JWT_SECRET: SECRET })).toThrow(/DATABASE_URL/);
+    expect(validateEnv({ NODE_ENV: 'test', JWT_SECRET: SECRET }).PORT).toBe(3000);
+  });
+
+  it('exige un JWT_SECRET de al menos 32 caracteres', () => {
+    expect(() => validateEnv({ NODE_ENV: 'test' })).toThrow(/JWT_SECRET/);
+    expect(() => validateEnv({ NODE_ENV: 'test', JWT_SECRET: 'corto' })).toThrow(/JWT_SECRET/);
   });
 
   it('valida tipos y rangos con mensajes claros', () => {
-    expect(() => validateEnv({ NODE_ENV: 'test', PORT: '99999' })).toThrow(/PORT/);
-    expect(() => validateEnv({ NODE_ENV: 'test', GAME_BASE_TIME_SECONDS: '0' })).toThrow(
-      /GAME_BASE_TIME_SECONDS/,
+    const base = { NODE_ENV: 'test', JWT_SECRET: SECRET };
+    expect(() => validateEnv({ ...base, PORT: '99999' })).toThrow(/PORT/);
+    expect(() => validateEnv({ ...base, GAME_BASE_TIME_SECONDS: '0' })).toThrow(/GAME_BASE_TIME_SECONDS/);
+    expect(() => validateEnv({ ...base, JWT_EXPIRES_IN_SECONDS: '5' })).toThrow(/JWT_EXPIRES_IN_SECONDS/);
+    expect(() => validateEnv({ ...base, DATABASE_POOL_MAX: '0' })).toThrow(/DATABASE_POOL_MAX/);
+    expect(() => validateEnv({ ...base, NODE_ENV: 'prod' })).toThrow(/NODE_ENV/);
+  });
+
+  it('rechaza en producción el secreto de ejemplo de .env.example', () => {
+    const env = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u:p@h:5432/d' };
+    expect(() => validateEnv({ ...env, JWT_SECRET: `dev-only-${'x'.repeat(30)}` })).toThrow(
+      /ejemplo en producción/,
     );
-    expect(() => validateEnv({ NODE_ENV: 'prod' })).toThrow(/NODE_ENV/);
-    expect(() => validateEnv({ NODE_ENV: 'test', JWT_SECRET: 'corto' })).toThrow(/JWT_SECRET/);
+    expect(() => validateEnv({ ...env, JWT_SECRET: SECRET })).not.toThrow();
   });
 
   it('acepta una configuración completa', () => {
@@ -44,7 +59,10 @@ describe('validateEnv', () => {
       NODE_ENV: 'production',
       DATABASE_URL: 'postgresql://u:p@h:5432/d',
       PORT: '8080',
+      JWT_SECRET: SECRET,
+      JWT_EXPIRES_IN_SECONDS: '900',
+      DATABASE_POOL_MAX: '20',
     });
-    expect(env.PORT).toBe(8080);
+    expect(env).toMatchObject({ PORT: 8080, JWT_EXPIRES_IN_SECONDS: 900, DATABASE_POOL_MAX: 20 });
   });
 });

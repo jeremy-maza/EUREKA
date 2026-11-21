@@ -1,7 +1,7 @@
 import { ChallengeDefinition, RuleAccumulator, RuleDefinition } from '../challenges';
 import { ScoreAward } from '../scoring';
 import { WorldDefinition } from '../worlds';
-import { BegunChallenge, WorldProgressState } from './progression.types';
+import { PresentedChallenge, WorldProgressState } from './progression.types';
 
 export class ProgressionError extends Error {
   constructor(message: string) {
@@ -62,24 +62,34 @@ export class ProgressionManager {
   }
 
   /**
-   * Presenta el reto actual y desbloquea (de forma permanente) la regla que introduce.
-   * Idempotente: volver a presentar un reto no duplica reglas.
+   * Reglas activas en el reto actual: las desbloqueadas más la que introduce el reto.
+   * No modifica el estado: la regla nueva solo se desbloquea al completar el reto (`recordCorrect`),
+   * por lo que fallar o agotar el tiempo no la acumula.
    */
-  beginChallenge(state: WorldProgressState, world: WorldDefinition): BegunChallenge {
+  presentChallenge(state: WorldProgressState, world: WorldDefinition): PresentedChallenge {
     const challenge = this.getCurrentChallenge(state, world);
-    const ruleId = challenge.introducesRuleId;
-    const unlockedRuleIds =
-      ruleId !== null && !state.unlockedRuleIds.includes(ruleId)
-        ? [...state.unlockedRuleIds, ruleId]
-        : state.unlockedRuleIds;
-    return { state: { ...state, unlockedRuleIds }, challenge };
+    const unlocked = this.getActiveRules(state, world);
+    const introduced = challenge.introducesRuleId
+      ? world.rules.find((rule) => rule.id === challenge.introducesRuleId)
+      : undefined;
+    const activeRules =
+      introduced && !unlocked.some((rule) => rule.id === introduced.id)
+        ? [...unlocked, introduced]
+        : unlocked;
+    return { challenge, activeRules };
   }
 
-  /** Acierto: avanza al siguiente reto, suma puntos y actualiza racha. */
+  /** Acierto: desbloquea la regla del reto, avanza, suma puntos y actualiza la racha. */
   recordCorrect(state: WorldProgressState, award: ScoreAward, world: WorldDefinition): WorldProgressState {
+    const challenge = this.getCurrentChallenge(state, world);
+    const ruleId = challenge.introducesRuleId;
     const nextPosition = state.currentPosition + 1;
     return {
       ...state,
+      unlockedRuleIds:
+        ruleId !== null && !state.unlockedRuleIds.includes(ruleId)
+          ? [...state.unlockedRuleIds, ruleId]
+          : state.unlockedRuleIds,
       currentPosition: nextPosition,
       streak: award.streakAfter,
       bestStreak: Math.max(state.bestStreak, award.streakAfter),
@@ -96,6 +106,14 @@ export class ProgressionManager {
   /** Vuelve al primer reto con racha 0 conservando reglas desbloqueadas y puntos. */
   restartSequence(state: WorldProgressState): WorldProgressState {
     return { ...state, currentPosition: 1, streak: 0, status: 'IN_PROGRESS' };
+  }
+
+  /**
+   * Nueva partida tras completar el mundo: vuelve al reto 1 conservando reglas, puntos y racha
+   * (completar no es fallar, así que la racha no se reinicia).
+   */
+  startNewRun(state: WorldProgressState): WorldProgressState {
+    return { ...state, currentPosition: 1, status: 'IN_PROGRESS' };
   }
 
   /** Reinicia el MUNDO: borra reglas acumuladas y posición. Conserva puntos y mejor racha. */

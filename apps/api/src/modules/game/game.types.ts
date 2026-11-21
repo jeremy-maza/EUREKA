@@ -19,11 +19,6 @@ export interface ActiveChallenge {
   streakBefore: number;
 }
 
-export interface StartedChallenge {
-  state: WorldProgressState;
-  activeChallenge: ActiveChallenge;
-}
-
 export type AttemptOutcome = 'CORRECT' | 'INCORRECT' | 'TIMEOUT';
 export type AttemptFailureReason = EvaluationFailureReason | 'TIMEOUT';
 
@@ -35,6 +30,8 @@ export interface AttemptResult {
   evaluation: SubmissionEvaluation | null;
   award: ScoreAward;
   elapsedMs: number;
+  /** Regla desbloqueada (guardada) por este acierto, si el reto introducía una nueva. */
+  unlockedRuleId: string | null;
   /** Nuevo estado de progreso (el original no se modifica). */
   state: WorldProgressState;
   /** `true` si el intento fallido devolvió al jugador al reto 1. */

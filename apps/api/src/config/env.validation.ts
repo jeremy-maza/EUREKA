@@ -13,6 +13,9 @@ import {
   validateSync,
 } from 'class-validator';
 
+/** Prefijo del secreto de ejemplo de `.env.example`: válido en desarrollo, rechazado en producción. */
+export const DEV_SECRET_PREFIX = 'dev-only-';
+
 export class EnvironmentVariables {
   @IsIn(['development', 'test', 'production'])
   NODE_ENV: string = 'development';
@@ -28,6 +31,14 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   DATABASE_URL!: string;
+
+  /** Conexiones máximas del pool de PostgreSQL (opcional). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  DATABASE_POOL_MAX?: number;
 
   @IsString()
   @IsNotEmpty()
@@ -64,15 +75,18 @@ export class EnvironmentVariables {
   @Min(1)
   GAME_MAX_STREAK_MULTIPLIER?: number;
 
-  // Reservadas para el módulo `auth` (aún no implementado).
-  @IsOptional()
+  // Autenticación JWT.
   @IsString()
   @MinLength(32)
-  JWT_SECRET?: string;
+  JWT_SECRET!: string;
 
+  /** Validez del token de acceso, en segundos (por defecto 3600). */
   @IsOptional()
-  @IsString()
-  JWT_EXPIRES_IN?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(60)
+  @Max(2_592_000)
+  JWT_EXPIRES_IN_SECONDS?: number;
 }
 
 /** Validador para `ConfigModule.forRoot({ validate })`: falla al arrancar con un mensaje claro. */
@@ -84,6 +98,11 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
       .map((e) => `  - ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`)
       .join('\n');
     throw new Error(`Variables de entorno inválidas:\n${details}`);
+  }
+  if (instance.NODE_ENV === 'production' && instance.JWT_SECRET.startsWith(DEV_SECRET_PREFIX)) {
+    throw new Error(
+      'Variables de entorno inválidas:\n  - JWT_SECRET: no uses el valor de ejemplo en producción',
+    );
   }
   return instance;
 }

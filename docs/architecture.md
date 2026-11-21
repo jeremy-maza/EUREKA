@@ -14,18 +14,54 @@ El backend se organiza por **dominios**, no por capas genéricas. Las clases del
 
 ### Módulos del backend (`apps/api/src`)
 
-| Módulo / carpeta                                         | Estado       | Responsabilidad                                                                   |
-| -------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------- |
-| `modules/challenges`                                     | Implementado | Parser, evaluador, reglas, `RuleEngine`, `RuleAccumulator`, `ChallengeEngine`     |
-| `modules/worlds`                                         | Implementado | Catálogo de mundos (Mundo 1) y validador de catálogos (garantía de resolubilidad) |
-| `modules/scoring`                                        | Implementado | `StreakManager`, `ScoringEngine` (aritmética entera)                              |
-| `modules/progression`                                    | Implementado | `ProgressionManager`: estado por jugador y mundo, reinicio de secuencia vs. mundo |
-| `modules/game`                                           | Implementado | `TimerManager`, `GameEngine` (fachada), punto de extensión de dificultad          |
-| `prisma`, `health`, `common`, `config`                   | Implementado | Infraestructura: acceso a BD, health, filtro de errores/Swagger, entorno          |
-| `auth`, `users`, `groups`                                | Pendiente    | JWT, usuarios, grupos y autorización de docentes                                  |
-| `rankings`, `statistics`, `rewards`, `teacher-dashboard` | Pendiente    | Derivados del historial de intentos y de `ScoreTransaction`                       |
+| Módulo / carpeta                       | Estado       | Responsabilidad                                                                                                                 |
+| -------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `modules/challenges`                   | Implementado | Parser, evaluador, reglas, `RuleEngine`, `RuleAccumulator`, `ChallengeEngine`                                                   |
+| `modules/worlds`                       | Implementado | Catálogo de mundos (Mundo 1) y validador de catálogos (garantía de resolubilidad)                                               |
+| `modules/scoring`                      | Implementado | `StreakManager`, `ScoringEngine` (aritmética entera), `ScoreService` (libro de puntos)                                          |
+| `modules/statistics`                   | Implementado | `StatisticsService`: agregados por jugador y mundo (misma transacción que el intento)                                           |
+| `modules/auth`, `modules/users`        | Implementado | Registro/login, JWT HS256, hash `scrypt`, guards global y de roles, perfil                                                      |
+| `modules/progression`                  | Implementado | `ProgressionManager` (puro) y `ProgressionService` (persistencia con bloqueo de fila)                                           |
+| `modules/game`                         | Implementado | `TimerManager`, `GameEngine` (fachada pura), `GameService` (capa de aplicación), controladores de juego y de estado del jugador |
+| `prisma`, `health`, `common`, `config` | Implementado | BD, health, `Clock` inyectable, filtro de errores/Swagger, decoradores, entorno                                                 |
+| `groups`, `teacher-dashboard`          | Pendiente    | Grupos, asignaciones y vistas de docentes (el modelo de datos ya existe)                                                        |
+| `rankings`, `rewards`                  | Pendiente    | Derivados de `ScoreTransaction` y del historial de intentos                                                                     |
 
-Dependencias entre módulos (acíclicas): `challenges ← worlds ← progression ← game`, `scoring ← game`.
+Dependencias entre módulos (acíclicas): `challenges ← worlds ← progression ← game`, `scoring ← game`, `statistics ← game`;
+`auth → users`. Las lecturas del estado del jugador (progreso/puntos/historial) viven en `game` porque deben cerrar por
+tiempo los intentos vencidos antes de leer (así evitan una dependencia circular `progression ↔ game`).
+
+### Capa de aplicación del juego (`GameService`)
+
+Orquesta el motor puro con la persistencia. Flujo de un reto:
+
+```
+POST /worlds/:slug/sessions        → sesión abierta (idempotente: reanuda la existente)
+POST /sessions/:id/attempts        → fila ChallengeAttempt PENDING con plazo fijado por el SERVIDOR
+POST /attempts/:id/answer {expr}   → transacción única: bloqueo de progreso → motor → persistencia atómica
+```
+
+Cada operación que cambia el estado de un (jugador, mundo) abre **una transacción** que primero **bloquea la fila de
+`student_world_progress`** (`SELECT … FOR UPDATE`; la fila se crea con `INSERT … ON CONFLICT DO NOTHING`). Dentro se
+escribe todo o nada: intento resuelto, progreso/racha, regla desbloqueada, `ScoreTransaction`, estadísticas y cierre de
+sesión. Dentro de la transacción solo se usa el cliente transaccional (con un pool de 1 conexión una consulta fuera de ella
+se bloquearía: las pruebas lo detectan).
+
+Por qué no se puede puntuar dos veces:
+
+1. El bloqueo de fila serializa a las peticiones del mismo jugador y mundo; el intento se relee **tras** el bloqueo.
+2. La resolución es `UPDATE … WHERE outcome = 'PENDING'` (si afecta a 0 filas, se aborta con 409).
+3. `ScoreTransaction.attemptId` es único.
+4. **Reenvío idempotente**: repetir la misma expresión en un intento ya resuelto devuelve el resultado original
+   (`replayed: true`); una expresión distinta da 409 (un solo intento por reto).
+
+**Tiempo.** `startedAt`/`deadlineAt` los fija el servidor al iniciar el reto (`Clock`) y se guardan; el cliente solo envía la
+expresión (`forbidNonWhitelisted` rechaza cualquier otro campo con 400). Un envío tardío es `TIMEOUT` y no se evalúa. Un reto
+abandonado se cierra como `TIMEOUT` de forma **perezosa y determinista** cuando el servidor vuelve a tocar el estado del
+jugador (iniciar reto/sesión o cualquier consulta de su estado); no hay trabajos en segundo plano.
+
+**Reglas.** El reto presenta como activas las reglas acumuladas **más la que introduce**; la nueva regla solo se **guarda al
+completar el reto con éxito**. Fallar o agotar el tiempo conserva las reglas ya guardadas y reinicia la secuencia.
 
 ### Motor del juego
 
@@ -83,7 +119,7 @@ histórico) y una política estática por defecto. La implementación real llega
 
 Entidades (Prisma, `apps/api/prisma/schema.prisma`): `User`, `Group`, `GroupMembership`, `TeacherGroupAssignment`,
 `World`, `Rule`, `Challenge`, `StudentWorldProgress`, `UnlockedRule`, `GameSession`, `ChallengeAttempt`,
-`ScoreTransaction`.
+`ScoreTransaction`, `WorldStatistics`.
 
 | Requisito                                             | Cómo se cubre                                                                          |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -99,21 +135,39 @@ Decisiones y omisiones deliberadas:
 
 - **`ChallengeRule` no existe**: cada reto introduce a lo sumo una regla, así que basta una FK única
   (`Challenge.introducesRuleId`). Si algún día un reto introduce varias, se migra a una tabla de unión.
-- **`WorldStatistics` no existe**: es derivable del historial de intentos; se creará (o se materializará) cuando se
-  implemente `statistics`, evitando datos duplicados que se desincronicen.
+- **`WorldStatistics` es un agregado materializado** (contadores, tiempo total de aciertos y reglas incumplidas). Es
+  derivable de `ChallengeAttempt`, pero se actualiza en la misma transacción que cada intento para consultas rápidas y
+  como entrada de la futura dificultad adaptativa; el historial sigue siendo la fuente de verdad.
 - `Rule.type` es `String` (no enum) para añadir tipos sin migración. `config` es `Json` validado por el `RuleHandler`.
 - `Challenge.referenceSolution` es sensible: ningún DTO de estudiante debe exponerlo.
 - IDs `uuid(7)` (ordenables por tiempo). Tiempos `timestamp` en UTC.
 - `StudentWorldProgress.totalPoints` es una caché; la fuente auditable es la suma de `ScoreTransaction.points`.
 - Un único intento por reto presentado: `ChallengeAttempt` se crea `PENDING` al iniciar el reto y se resuelve una sola vez.
-  _Pendiente_: índice único parcial en BD para "un solo intento `PENDING` por sesión" (Prisma no lo expresa; irá en SQL de migración).
 - Invariante de aplicación: `TeacherGroupAssignment.teacherId` debe ser un usuario con rol `TEACHER`.
 
-### Integridad de la puntuación y autorización (principio)
+### Integridad en la base de datos (migración `…_game_persistence`, SQL manual)
+
+Prisma no expresa estos objetos; viven en el SQL de la migración (las pruebas de integración los ejercitan):
+
+- Índice único parcial: **un solo intento `PENDING` por (usuario, mundo)**.
+- Índice único parcial: **una sola sesión abierta por (usuario, mundo)**.
+- CHECKs: coherencia `outcome ↔ failureReason`, puntos solo en aciertos, valores de progreso/puntos no negativos y
+  `bestStreak >= currentStreak`.
+- **Libro de puntos solo-inserción**: un trigger rechaza `UPDATE`/`DELETE` en `score_transactions`. Los ajustes manuales
+  se registran como nuevas filas (`MANUAL_ADJUSTMENT`), nunca modificando las existentes.
+- `ChallengeAttempt.worldId` denormalizado (necesario para el índice parcial) y `Challenge.key` (id estable del catálogo).
+
+### Integridad de la puntuación y autorización
 
 - El cliente **nunca** envía puntos, tiempos ni rachas: solo la respuesta. Todo se calcula y persiste en el servidor.
 - Los docentes solo accederán a estudiantes de grupos que tengan en `TeacherGroupAssignment` (a aplicar en `teacher-dashboard`).
-- Autenticación prevista: JWT de acceso de vida corta (`JWT_SECRET`, `JWT_EXPIRES_IN` ya reservadas) con guards de rol.
+- Autenticación: JWT HS256 de acceso (`JWT_SECRET`, `JWT_EXPIRES_IN_SECONDS`). Guard **global** que deniega por defecto
+  (`@Public()` para excepciones) y recarga al usuario de la BD en cada petición (cuentas eliminadas o cambios de rol
+  surten efecto al instante); `@Roles(...)` para restringir. Los endpoints de juego son **solo para estudiantes**.
+- Propiedad: todas las consultas filtran por el `userId` del token; una sesión/intento ajeno responde **404** (no filtra
+  su existencia). El autorregistro solo crea estudiantes; docentes y administradores se crean por vía administrativa.
+- Nada de lo que el cliente envía determina puntos, racha, reglas, resultado esperado ni tiempos. La solución de
+  referencia y el resultado esperado jamás salen en ninguna respuesta.
 
 ## Registro de decisiones (ADR)
 
@@ -128,15 +182,26 @@ Decisiones y omisiones deliberadas:
    exactos (necesario para el Mundo 3 sin reescribir el motor).
 6. **Motor sin decoradores de Nest.** Testabilidad y desacoplamiento; los módulos solo cablean con `useFactory`.
 7. **Vitest + Testing Library en el frontend** (Jest en el backend, según requisito): es el runner natural de Vite.
-8. **Dependencias evitadas:** `concurrently`, librerías de matemáticas/parsers (`mathjs`, `expr-eval`), `@nestjs/terminus`,
-   gestores de estado. Se reevaluarán cuando exista una necesidad real.
+8. **JWT y contraseñas con `node:crypto`, sin dependencias.** `scrypt` (N=2^15, r=8, p=1, sal aleatoria) evita módulos
+   nativos (bcrypt) y `TokenService` implementa solo HS256 con verificación estricta (`alg`, firma en tiempo constante,
+   `exp`). Se aisló tras `issue`/`verify` para sustituirlo por `@nestjs/jwt` o `jose` sin tocar el resto. _Pendiente:_ refresco/revocación.
+9. **Pruebas de integración con PGlite.** Postgres real en WASM con las migraciones del repo: sin Docker y deterministas.
+   Se ejecuta en serie con un pool de 1 conexión (ver limitaciones en el README).
+10. **Dependencias evitadas:** `concurrently`, `bcrypt`, `passport`, librerías de matemáticas/parsers (`mathjs`, `expr-eval`), `@nestjs/terminus`,
+    `@nestjs/throttler`. Se reevaluarán cuando exista una necesidad real.
 
 ## Supuestos (a confirmar)
 
 - **Tiempo con 0 reglas.** La fórmula usa `activeRulesCount − 1`; el reto 1 del ejemplo no muestra regla, así que el conteo
   se acota a ≥ 1 (reto 1 y reto 2, ambos con ≤ 1 regla, reciben el tiempo base).
-- **La regla del reto se desbloquea al presentarlo**, no al resolverlo; por eso persiste aunque el jugador falle ese reto.
-- **Completar todos los retos** marca el progreso como `COMPLETED`; para volver a jugar se reinicia la secuencia (acción explícita).
+- **La regla nueva se guarda al COMPLETAR con éxito el reto** (requisito explícito). Mientras se juega ese reto ya aplica y cuenta para el tiempo, pero si se falla o vence el plazo no se acumula y volverá a presentarse como nueva al reintentar.
+- **Completar todos los retos** marca el progreso `COMPLETED` y cierra la sesión. Iniciar una sesión nueva reinicia la
+  secuencia conservando reglas, puntos **y racha** (completar no es fallar). Consecuencia: rejugar el mundo permite mantener
+  el multiplicador máximo; si no se desea, se resetea la racha al completar (decisión de producto pendiente).
+- **Iniciar sesión es idempotente**: si hay una sesión abierta se reanuda (200); no hay más de una abierta por jugador y mundo.
+  No se permite terminar la sesión con un reto vigente (el plazo corre igualmente).
+- **Expiración perezosa**: un reto abandonado se registra como `TIMEOUT` la próxima vez que el jugador toca su estado
+  (con `elapsedMs` = límite), no en el instante exacto del vencimiento.
 - **`REQUIRED_OPERATION` compara literales**: `7 * 1` exige un nodo `*` con operandos literales 7 y 1 (conmutativo en `+`/`*`).
   `2 * 7 * 1` se lee como `(2 * 7) * 1` y no la contiene. Es una limitación documentada y testeada.
 - **Solo enteros** en el Mundo 1 (sin decimales ni multiplicación implícita). Resultados intermedios racionales sí se permiten.

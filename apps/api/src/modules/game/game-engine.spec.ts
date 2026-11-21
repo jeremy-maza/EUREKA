@@ -19,15 +19,15 @@ const world = arithmeticWorld;
 
 /** Presenta el reto actual y envía `submission` a los `seconds` s del inicio. */
 function play(state: WorldProgressState, submission: string, seconds = 5) {
-  const started = engine.startChallenge(state, world, T0);
+  const activeChallenge = engine.startChallenge(state, world, T0);
   const result = engine.submitAnswer({
-    state: started.state,
+    state,
     world,
-    activeChallenge: started.activeChallenge,
+    activeChallenge,
     submission,
     submittedAt: at(seconds),
   });
-  return { started, result };
+  return { started: { activeChallenge }, result };
 }
 
 describe('GameEngine — flujo del mundo Aritmética', () => {
@@ -94,19 +94,18 @@ describe('GameEngine — flujo del mundo Aritmética', () => {
       expect(failing.result.state.bestStreak).toBe(2);
     });
 
-    it('conserva TODAS las reglas desbloqueadas (incluida la del reto que se falló)', () => {
-      expect(failing.result.state.unlockedRuleIds).toEqual([
-        'arithmetic.forbidden-digit-2',
-        'arithmetic.required-7-times-1',
-      ]);
+    it('conserva las reglas ya desbloqueadas; la del reto fallido NO se acumula', () => {
+      // El reto 2 se completó (regla del dígito 2 guardada); el reto 3 se falló (su regla 7 * 1 no se guarda).
+      expect(failing.result.state.unlockedRuleIds).toEqual(['arithmetic.forbidden-digit-2']);
+      expect(failing.result.unlockedRuleId).toBeNull();
     });
 
-    it('al reiniciar, el reto 1 se juega con las reglas ya acumuladas y más tiempo', () => {
+    it('al reiniciar, el reto 1 se juega con las reglas ya acumuladas', () => {
       const replay = engine.startChallenge(failing.result.state, world, T0);
-      expect(replay.activeChallenge.challenge.id).toBe('arithmetic-001');
-      expect(replay.activeChallenge.activeRules.map((r) => r.id)).toHaveLength(2);
-      expect(replay.activeChallenge.timeLimitSeconds).toBe(75);
-      expect(replay.activeChallenge.streakBefore).toBe(0);
+      expect(replay.challenge.id).toBe('arithmetic-001');
+      expect(replay.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
+      expect(replay.timeLimitSeconds).toBe(60);
+      expect(replay.streakBefore).toBe(0);
     });
 
     it('en el reintento, "21" (válido la primera vez) ahora se rechaza; la referencia sí pasa', () => {
@@ -170,20 +169,18 @@ describe('GameEngine — tiempo (autoridad del servidor)', () => {
   });
 
   it('expireChallenge cierra como timeout un reto sin respuesta una vez vencido el plazo', () => {
-    const started = engine.startChallenge(state, world, T0);
-    expect(() => engine.expireChallenge(started.state, started.activeChallenge, at(30))).toThrow(
-      GameStateError,
-    );
-    const result = engine.expireChallenge(started.state, started.activeChallenge, at(90));
+    const active = engine.startChallenge(state, world, T0);
+    expect(() => engine.expireChallenge(state, active, at(30))).toThrow(GameStateError);
+    const result = engine.expireChallenge(state, active, at(90));
     expect(result).toMatchObject({ outcome: 'TIMEOUT', elapsedMs: 90_000 });
   });
 
   it('no permite responder un reto que ya no es el actual (p. ej. reenvío tras resolver)', () => {
-    const started = engine.startChallenge(state, world, T0);
+    const active = engine.startChallenge(state, world, T0);
     const solved = engine.submitAnswer({
-      state: started.state,
+      state,
       world,
-      activeChallenge: started.activeChallenge,
+      activeChallenge: active,
       submission: '21',
       submittedAt: at(1),
     });
@@ -191,10 +188,37 @@ describe('GameEngine — tiempo (autoridad del servidor)', () => {
       engine.submitAnswer({
         state: solved.state,
         world,
-        activeChallenge: started.activeChallenge,
+        activeChallenge: active,
         submission: '21',
         submittedAt: at(2),
       }),
     ).toThrow(GameStateError);
+  });
+});
+
+describe('GameEngine — la regla nueva se acumula solo al completar el reto', () => {
+  const afterOne = play(progression.createInitialState('arithmetic'), '21').result.state;
+
+  it('durante el reto 2 la regla del dígito 2 ya aplica y cuenta para el tiempo', () => {
+    const active = engine.startChallenge(afterOne, world, T0);
+    expect(active.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
+    expect(afterOne.unlockedRuleIds).toEqual([]); // aún no está guardada
+  });
+
+  it('acertar guarda la regla y lo informa en el resultado', () => {
+    const { result } = play(afterOne, '41 + 1');
+    expect(result.unlockedRuleId).toBe('arithmetic.forbidden-digit-2');
+    expect(result.state.unlockedRuleIds).toEqual(['arithmetic.forbidden-digit-2']);
+  });
+
+  it('fallar o agotar el tiempo NO guarda la regla del reto', () => {
+    expect(play(afterOne, '21 * 2').result.state.unlockedRuleIds).toEqual([]);
+    expect(play(afterOne, '41 + 1', 999).result.state.unlockedRuleIds).toEqual([]);
+  });
+
+  it('al reintentar el mismo reto, la regla vuelve a presentarse como nueva', () => {
+    const failed = play(afterOne, '21 * 2').result.state;
+    const second = engine.startChallenge({ ...failed, currentPosition: 2 }, world, T0);
+    expect(second.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
   });
 });

@@ -2,7 +2,7 @@ import { ChallengeEngine } from '../challenges';
 import { ProgressionManager, WorldProgressState } from '../progression';
 import { ScoringEngine } from '../scoring';
 import { WorldDefinition } from '../worlds';
-import { ActiveChallenge, AttemptResult, StartedChallenge } from './game.types';
+import { ActiveChallenge, AttemptResult } from './game.types';
 import { TimerManager } from './timer-manager';
 
 export class GameStateError extends Error {
@@ -36,23 +36,21 @@ export interface SubmitAnswerInput {
 export class GameEngine {
   constructor(private readonly deps: GameEngineDependencies) {}
 
-  /** Presenta el reto actual, desbloquea su regla y fija el plazo según las reglas activas. */
-  startChallenge(state: WorldProgressState, world: WorldDefinition, now: Date): StartedChallenge {
+  /**
+   * Presenta el reto actual y fija el plazo según las reglas activas (acumuladas + la del reto).
+   * No modifica el progreso: la regla nueva solo se desbloquea si el jugador acierta.
+   */
+  startChallenge(state: WorldProgressState, world: WorldDefinition, now: Date): ActiveChallenge {
     const { progressionManager, timerManager } = this.deps;
-    const begun = progressionManager.beginChallenge(state, world);
-    const activeRules = progressionManager.getActiveRules(begun.state, world);
-    const timeLimitSeconds = timerManager.calculateTimeLimitSeconds(activeRules.length);
+    const { challenge, activeRules } = progressionManager.presentChallenge(state, world);
 
     return {
-      state: begun.state,
-      activeChallenge: {
-        challenge: begun.challenge,
-        activeRules,
-        startedAt: now,
-        deadlineAt: timerManager.calculateDeadline(now, activeRules.length),
-        timeLimitSeconds,
-        streakBefore: begun.state.streak,
-      },
+      challenge,
+      activeRules,
+      startedAt: now,
+      deadlineAt: timerManager.calculateDeadline(now, activeRules.length),
+      timeLimitSeconds: timerManager.calculateTimeLimitSeconds(activeRules.length),
+      streakBefore: state.streak,
     };
   }
 
@@ -90,6 +88,8 @@ export class GameEngine {
 
     const award = scoringEngine.scoreCorrect(state.streak);
     const nextState = progressionManager.recordCorrect(state, award, world);
+    const unlockedRuleId =
+      nextState.unlockedRuleIds.find((id) => !state.unlockedRuleIds.includes(id)) ?? null;
     return {
       outcome: 'CORRECT',
       failureReason: null,
@@ -98,6 +98,7 @@ export class GameEngine {
       award,
       elapsedMs: timing.elapsedMs,
       state: nextState,
+      unlockedRuleId,
       sequenceRestarted: false,
       worldCompleted: nextState.status === 'COMPLETED',
     };
@@ -133,6 +134,7 @@ export class GameEngine {
       evaluation,
       award: scoringEngine.scoreFailure(),
       elapsedMs,
+      unlockedRuleId: null,
       state: progressionManager.recordFailure(state),
       sequenceRestarted: true,
       worldCompleted: false,
