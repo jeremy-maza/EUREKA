@@ -1,0 +1,57 @@
+:root {
+  font-family: "Trebuchet MS", "Arial Rounded MT Bold", ui-rounded, system-ui, sans-serif;
+  color: #35485a;
+  background: #fff8e9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --cream: #fff8e9;
+  --paper: #fffdf7;
+  --sky: #bceaff;
+  --blue: #47b9e8;
+  --green: #64c982;
+  --leaf: #328d61;
+  --yellow: #ffd45e;
+  --orange: #ff9a4a;
+  --coral: #ff756b;
+  --text: #35485a;
+  --muted: #748493;
+  --success: #3aab6a;
+  --error: #e85f58;
+  --line: #e9e1d0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--cream);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--cream);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  color: var(--text);
+  background: var(--yellow);
+}
