@@ -1,0 +1,21 @@
+# dependencias
+node_modules/
+
+# build
+dist/
+coverage/
+*.tsbuildinfo
+
+# entorno (nunca commitear secretos)
+.env
+.env.*
+!.env.example
+
+# Prisma: cliente generado
+apps/api/src/generated/
+
+# sistema / editor
+.DS_Store
+*.log
+.idea/
+.vscode/

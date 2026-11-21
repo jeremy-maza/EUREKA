@@ -1,0 +1,97 @@
+:root {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: #1c1b22;
+  background: #f7f6fb;
+  line-height: 1.5;
+}
+body {
+  margin: 0;
+}
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: #2b2a4c;
+}
+.app-header nav {
+  display: flex;
+  gap: 1rem;
+}
+.brand {
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+.nav-link {
+  color: #cfcdf0;
+  text-decoration: none;
+}
+.nav-link.active {
+  color: #fff;
+  text-decoration: underline;
+}
+.app-main {
+  flex: 1;
+  width: min(48rem, 100% - 3rem);
+  margin: 2rem auto;
+}
+.app-footer {
+  padding: 1rem 1.5rem;
+  text-align: center;
+  color: #5c5a73;
+  font-size: 0.9rem;
+}
+.lead {
+  font-size: 1.15rem;
+}
+.button {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: #5b4bdb;
+  color: #fff;
+  text-decoration: none;
+}
+.worlds {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.world {
+  padding: 1rem 1.25rem;
+  background: #fff;
+  border: 1px solid #dcdaf0;
+  border-radius: 0.75rem;
+}
+.world h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+}
+.world--locked {
+  opacity: 0.6;
+}
+.world-state {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.api-status {
+  font-size: 0.9rem;
+}
+.api-status--up {
+  color: #1b7a43;
+}
+.api-status--down {
+  color: #b3261e;
+}
