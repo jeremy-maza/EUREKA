@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { WORLDS } from '../features/worlds/worlds';
 
 export function WorldsPage() {
@@ -10,6 +11,11 @@ export function WorldsPage() {
             <h2>{world.name}</h2>
             <p>{world.description}</p>
             <p className="world-state">{world.available ? 'Disponible' : 'Próximamente'}</p>
+            {world.available && (
+              <Link to={`/mundos/${world.slug}/jugar`} className="button">
+                Jugar
+              </Link>
+            )}
           </li>
         ))}
       </ol>
