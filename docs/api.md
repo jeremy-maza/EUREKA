@@ -1,7 +1,8 @@
 # Referencia rápida de la API
 
-Base: `http://localhost:3000/api` · Swagger interactivo: `/api/docs` · Todo (salvo `/auth/*` y `/health*`) requiere
-`Authorization: Bearer <accessToken>`. Los endpoints de juego son solo para estudiantes (otros roles reciben 403). Grupos, docentes y panel docente: ver
+Base: `http://localhost:3000/api` · Swagger interactivo: `/api/docs` · Todo (salvo `/auth/{register,login,password/*}` y
+`/health*`) requiere `Authorization: Bearer <accessToken>`; el token solo vale mientras su **sesión** siga vigente (se revoca
+con logout, cambio/recuperación de contraseña…). Autenticación y cuentas: [authentication.md](./authentication.md). Los endpoints de juego son solo para estudiantes (otros roles reciben 403). Grupos, docentes y panel docente: ver
 [groups-and-teachers.md](./groups-and-teachers.md).
 
 ## Flujo de una partida
@@ -50,7 +51,7 @@ Formato de respuesta aceptado: `expresión` o `expresión = resultado` (p. ej. `
 | Método | Ruta                                    | Códigos             | Notas                                                          |
 | ------ | --------------------------------------- | ------------------- | -------------------------------------------------------------- |
 | POST   | `/auth/register`                        | 201, 400, 409       | Siempre crea un estudiante                                     |
-| POST   | `/auth/login`                           | 200, 400, 401       | `{ accessToken, tokenType, expiresIn }`                        |
+| POST   | `/auth/login`                           | 200, 400, 401, 429  | `{ accessToken, tokenType, expiresIn }`; crea una sesión       |
 | GET    | `/users/me`                             | 200, 401            |                                                                |
 | GET    | `/worlds`                               | 200                 | Mundos habilitados                                             |
 | GET    | `/progress`                             | 200, 403            | Progreso y **racha por mundo**                                 |
@@ -65,6 +66,30 @@ Formato de respuesta aceptado: `expresión` o `expresión = resultado` (p. ej. `
 | POST   | `/attempts/:id/answer`                  | 200, 400, 404, 409  | Cuerpo: `{ "expression": "…" }`                                |
 
 Puntos: enteros. `multiplierMilli` en milésimas (1500 = 1.5x) y `multiplier` como texto (`"1.5"`).
+
+## Cuenta, contraseñas y sesiones
+
+Detalle, flujos y configuración en [authentication.md](./authentication.md). Los `429` llevan `Retry-After` (segundos).
+
+| Método | Ruta                        | Auth   | Códigos                      | Notas                                                           |
+| ------ | --------------------------- | ------ | ---------------------------- | --------------------------------------------------------------- |
+| POST   | `/auth/change-password`     | Bearer | 200, 400, 401, 403, 409, 429 | `{ currentPassword, newPassword }`; revoca TODAS las sesiones   |
+| POST   | `/auth/password/forgot`     | —      | 202, 400, 429                | `{ email }`; misma respuesta exista o no la cuenta              |
+| POST   | `/auth/password/reset`      | —      | 200, 400                     | `{ token, newPassword }`; token de un solo uso; revoca sesiones |
+| GET    | `/auth/sessions`            | Bearer | 200, 400, 401                | `?status=ACTIVE\|ALL&limit&cursor`; solo las propias            |
+| DELETE | `/auth/sessions/:sessionId` | Bearer | 204, 400, 401, 404           | Revoca una sesión propia (ajena → 404)                          |
+| POST   | `/auth/logout`              | Bearer | 204, 401                     | Revoca la sesión actual                                         |
+| POST   | `/auth/logout-all`          | Bearer | 200, 401                     | `{ revokedSessions }`                                           |
+
+```bash
+# Cambiar la contraseña (tras el 200, el token usado ya no sirve: vuelve a hacer login)
+curl -s -X POST $B/auth/change-password -H "$A" -H 'content-type: application/json' \
+  -d '{"currentPassword":"correct-horse-battery","newPassword":"una-clave-nueva-y-larga"}'
+
+# Recuperación: el correo trae un enlace …/reset-password#token=<token>
+curl -s -X POST $B/auth/password/forgot -H 'content-type: application/json' -d '{"email":"ana@example.com"}'
+curl -s -X POST $B/auth/password/reset  -H 'content-type: application/json' -d '{"token":"<token>","newPassword":"otra-clave-larga-1"}'
+```
 
 ## Grupos, docentes y panel docente
 

@@ -72,8 +72,9 @@ El script usa el mismo hash `scrypt` y la misma unicidad de correo que el regist
 (si el correo ya existe, falla) e imprime solo el id y el correo. Los siguientes docentes los crea un administrador por API.
 Los administradores adicionales se crean con el mismo script.
 
-> Pendiente: no hay endpoint de cambio de contraseña, por lo que la contraseña inicial de un docente (fijada por el
-> administrador) no puede cambiarla el propio docente todavía. Ver "Limitaciones".
+> La contraseña que fija el administrador al crear un docente es **temporal**: el docente la sustituye con
+> `POST /auth/change-password` en su primer acceso (o usa la recuperación por correo). Ver
+> [authentication.md](./authentication.md#4-cambio-de-contraseña--post-authchange-password). Aún no se obliga a cambiarla.
 
 ## 4. Reglas de autorización
 
@@ -217,8 +218,8 @@ curl -s -X DELETE $B/admin/groups/$GID/teachers/$TID -H "Authorization: Bearer $
 
 - **Consentimiento/invitación**: hoy el docente matricula directamente por id/correo (el enunciado lo exige). Un flujo de
   invitación o códigos de grupo evitaría que un docente enumere cuentas por correo (la respuesta 404/422/201 revela si existe).
-- **Cambio de contraseña**: no existe; el docente conserva la contraseña inicial fijada por el administrador. Sin
-  recuperación de cuenta, límite de peticiones en login ni revocación de tokens (preexistente).
+- **Contraseña inicial del docente**: el docente puede cambiarla (`POST /auth/change-password`) y recuperarla por correo
+  (`/auth/password/*`), pero no hay un indicador «debe cambiarla» que lo fuerce. Ver [authentication.md](./authentication.md).
 - **Orden**: las listas de estudiantes se ordenan por nombre; no hay ordenación por métricas (precisión, puntos). `studentsNeedingAttention` cubre el caso principal.
 - **Alta masiva** de estudiantes (CSV) y fusión/duplicado de grupos no implementados. Un solo estudiante por petición.
 - **Dashboard de administrador**: el administrador no consume `/teacher/*`.

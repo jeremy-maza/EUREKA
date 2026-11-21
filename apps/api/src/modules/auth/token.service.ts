@@ -6,12 +6,17 @@ export interface TokenPayload {
   /** Id del usuario. */
   sub: string;
   role: UserRole;
+  /** Id de la sesión (`AuthSession.id`): permite revocar tokens individuales. Obligatorio. */
+  jti: string;
 }
 
 export interface IssuedToken {
   accessToken: string;
   /** Segundos de validez. */
   expiresIn: number;
+  /** Instante de emisión (`iat`) y de caducidad (`exp`) exactos del token, para persistir la sesión. */
+  issuedAt: Date;
+  expiresAt: Date;
 }
 
 export class InvalidTokenError extends Error {
@@ -29,7 +34,8 @@ const b64url = (input: Buffer | string): string => Buffer.from(input).toString('
  * Emisión y verificación de JWT firmados con HS256 (RFC 7519) usando solo `node:crypto`.
  *
  * Es deliberadamente estricto: solo acepta `alg: HS256` (no existe `none` ni confusión de algoritmos),
- * compara la firma en tiempo constante y exige `exp`. El resto del sistema depende únicamente de
+ * compara la firma en tiempo constante y exige `exp` y `jti`. Que la firma y la caducidad sean válidas NO basta
+ * para autenticar: el guard comprueba además que la sesión `jti` exista y no esté revocada. El resto del sistema depende únicamente de
  * `issue`/`verify`, por lo que puede sustituirse por `@nestjs/jwt` o `jose` sin tocar nada más.
  */
 export class TokenService {
@@ -45,9 +51,15 @@ export class TokenService {
 
   issue(payload: TokenPayload): IssuedToken {
     const iat = Math.floor(this.clock.now().getTime() / 1000);
-    const body = { sub: payload.sub, role: payload.role, iat, exp: iat + this.ttlSeconds };
+    const exp = iat + this.ttlSeconds;
+    const body = { sub: payload.sub, role: payload.role, jti: payload.jti, iat, exp };
     const signingInput = `${b64url(JSON.stringify(HEADER))}.${b64url(JSON.stringify(body))}`;
-    return { accessToken: `${signingInput}.${this.sign(signingInput)}`, expiresIn: this.ttlSeconds };
+    return {
+      accessToken: `${signingInput}.${this.sign(signingInput)}`,
+      expiresIn: this.ttlSeconds,
+      issuedAt: new Date(iat * 1000),
+      expiresAt: new Date(exp * 1000),
+    };
   }
 
   /** @throws InvalidTokenError si el token está mal formado, la firma no coincide o expiró. */
@@ -70,8 +82,10 @@ export class TokenService {
     if (typeof claims.exp !== 'number' || claims.exp <= nowSeconds)
       throw new InvalidTokenError('Token expirado.');
     if (typeof claims.sub !== 'string' || typeof claims.role !== 'string') throw new InvalidTokenError();
+    // Los tokens anteriores a las sesiones revocables no llevan `jti` y ya no se aceptan (cambio documentado).
+    if (typeof claims.jti !== 'string' || claims.jti === '') throw new InvalidTokenError();
 
-    return { sub: claims.sub, role: claims.role as UserRole };
+    return { sub: claims.sub, role: claims.role as UserRole, jti: claims.jti };
   }
 
   private sign(input: string): string {

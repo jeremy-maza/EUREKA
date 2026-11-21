@@ -3,9 +3,9 @@
 Juego educativo de matemáticas inspirado en _The Password Game_. El jugador resuelve retos escribiendo
 **expresiones matemáticas completas**; cada reto añade una **regla nueva** y todas las anteriores siguen activas.
 
-> Estado: **backend del juego del Mundo 1 (Aritmética) funcional**: motor, autenticación JWT, sesiones, retos con
-> temporizador del servidor, reglas acumuladas, puntuación auditable y API REST documentada con Swagger.
-> La interfaz de juego aún no existe; ver [Alcance actual](#alcance-actual).
+> Estado: **MVP jugable del Mundo 1 (Aritmética)**: registro/login, partida con temporizador, reglas acumuladas,
+> puntuación con multiplicador de racha y vista de progreso, sobre el backend (motor, JWT con sesiones revocables,
+> puntuación auditable y API REST con Swagger). Ver [Demo jugable](#demo-jugable) y [Alcance actual](#alcance-actual).
 
 ## Mundos
 
@@ -53,12 +53,28 @@ npm run dev:api               # API   → http://localhost:3000/api
 npm run dev:web               # Web   → http://localhost:5173
 ```
 
+- Abre <http://localhost:5173> y sigue la [demo jugable](#demo-jugable).
 - Health check: <http://localhost:3000/api/health> (liveness) y `/api/health/ready` (comprueba la BD).
 - Swagger / OpenAPI: <http://localhost:3000/api/docs> (JSON en `/api/docs-json`).
 - El frontend llama a `/api/*`; Vite lo reenvía al backend (proxy) para evitar CORS en desarrollo.
 
 > La API arranca aunque la base de datos no esté disponible (la conexión es perezosa); solo
 > `/api/health/ready` devolverá 503.
+
+## Demo jugable
+
+1. **Crear cuenta** (`/registro`: nombre, correo y contraseña de 8+ caracteres) → entras automáticamente.
+2. **Mundos → Jugar** (Mundo 1: Aritmética). La pantalla muestra puntos, racha y multiplicador del próximo acierto.
+3. **Reto**: una operación (p. ej. `3 * 7`). Escribe una **expresión** con el mismo valor que cumpla TODAS las reglas
+   activas (p. ej. `7 * 1 * 3`). El cronómetro es el del servidor; al llegar a 0 el servidor cierra el reto por tiempo.
+4. **Acierto**: suma `100 × multiplicador` (×1, ×1.5, ×2… hasta ×5 con la racha), desbloquea la regla del reto y pasa al siguiente.
+5. **Fallo** (resultado erróneo, sintaxis, regla rota o tiempo agotado): racha a 0 y la secuencia vuelve al reto 1;
+   los puntos y las reglas ya desbloqueadas se conservan (**Reiniciar secuencia**).
+6. Completar los 4 retos cierra el mundo; **Jugar de nuevo** inicia otra tanda conservando reglas y puntos.
+7. **Mi progreso**: puntos, racha actual/mejor, multiplicador, reglas, estadísticas e historial de intentos.
+
+Secuencia de referencia del Mundo 1 (soluciones válidas con todas las reglas acumuladas): `21` → `7*1*6` → `7*1` → `7*1*4+3*4`.
+El frontend no calcula nada del juego: solo muestra lo que devuelve la API (reto, reglas, plazo, puntos, racha).
 
 ### Sin Docker
 
@@ -69,23 +85,37 @@ Cualquier PostgreSQL sirve: ajusta `DATABASE_URL` en `.env` y omite `npm run db:
 Se define todo en un único `.env` en la raíz (ver [`.env.example`](./.env.example)). La API y la CLI de Prisma lo
 leen desde `apps/api`; Docker Compose, desde la raíz. **Nunca se commitea `.env`.**
 
-| Variable                                | Obligatoria       | Por defecto             | Descripción                                                         |
-| --------------------------------------- | ----------------- | ----------------------- | ------------------------------------------------------------------- |
-| `DATABASE_URL`                          | Sí (salvo `test`) | —                       | Cadena de conexión de PostgreSQL                                    |
-| `POSTGRES_USER/PASSWORD/DB/PORT`        | Para Docker       | —                       | Credenciales del contenedor (deben casar con la URL)                |
-| `NODE_ENV`                              | No                | `development`           | `development` \| `test` \| `production`                             |
-| `PORT`                                  | No                | `3000`                  | Puerto de la API                                                    |
-| `CORS_ORIGIN`                           | No                | `http://localhost:5173` | Origen permitido por CORS                                           |
-| `GAME_BASE_TIME_SECONDS`                | No                | `60`                    | Tiempo base por reto                                                |
-| `GAME_ADDITIONAL_TIME_PER_RULE_SECONDS` | No                | `15`                    | Segundos extra por regla activa adicional                           |
-| `JWT_SECRET`                            | **Sí**            | —                       | Secreto HS256 (>= 32 chars; el de ejemplo se rechaza en producción) |
-| `JWT_EXPIRES_IN_SECONDS`                | No                | `3600`                  | Validez del token de acceso                                         |
-| `DATABASE_POOL_MAX`                     | No                | (`pg`: 10)              | Conexiones máximas del pool de PostgreSQL                           |
-| `GAME_BASE_POINTS`                      | No                | `100`                   | Puntos base por acierto (entero)                                    |
-| `GAME_STREAK_MULTIPLIER_STEP`           | No                | `0.5`                   | Incremento del multiplicador por acierto consecutivo                |
-| `GAME_MAX_STREAK_MULTIPLIER`            | No                | `5`                     | Tope del multiplicador                                              |
+| Variable                                     | Obligatoria       | Por defecto                    | Descripción                                                          |
+| -------------------------------------------- | ----------------- | ------------------------------ | -------------------------------------------------------------------- |
+| `DATABASE_URL`                               | Sí (salvo `test`) | —                              | Cadena de conexión de PostgreSQL                                     |
+| `POSTGRES_USER/PASSWORD/DB/PORT`             | Para Docker       | —                              | Credenciales del contenedor (deben casar con la URL)                 |
+| `NODE_ENV`                                   | No                | `development`                  | `development` \| `test` \| `production`                              |
+| `PORT`                                       | No                | `3000`                         | Puerto de la API                                                     |
+| `CORS_ORIGIN`                                | No                | `http://localhost:5173`        | Origen permitido por CORS                                            |
+| `GAME_BASE_TIME_SECONDS`                     | No                | `60`                           | Tiempo base por reto                                                 |
+| `GAME_ADDITIONAL_TIME_PER_RULE_SECONDS`      | No                | `15`                           | Segundos extra por regla activa adicional                            |
+| `JWT_SECRET`                                 | **Sí**            | —                              | Secreto HS256 (>= 32 chars; el de ejemplo se rechaza en producción)  |
+| `JWT_EXPIRES_IN_SECONDS`                     | No                | `3600`                         | Validez del token de acceso                                          |
+| `DATABASE_POOL_MAX`                          | No                | (`pg`: 10)                     | Conexiones máximas del pool de PostgreSQL                            |
+| `GAME_BASE_POINTS`                           | No                | `100`                          | Puntos base por acierto (entero)                                     |
+| `GAME_STREAK_MULTIPLIER_STEP`                | No                | `0.5`                          | Incremento del multiplicador por acierto consecutivo                 |
+| `GAME_MAX_STREAK_MULTIPLIER`                 | No                | `5`                            | Tope del multiplicador                                               |
+| `TRUST_PROXY`                                | No                | `false`                        | Saltos de proxy (`1`), `loopback`, CIDR… Determina la IP del cliente |
+| `PASSWORD_MIN_LENGTH`                        | No                | `8`                            | Longitud mínima de contraseña (8–64; recomendado 12)                 |
+| `LOGIN_MAX_ATTEMPTS_IP_EMAIL / _EMAIL / _IP` | No                | `5` / `20` / `100`             | Intentos de login por ventana (IP+correo / correo / IP)              |
+| `LOGIN_WINDOW_SECONDS`                       | No                | `900`                          | Ventana del limitador de login                                       |
+| `LOGIN_LOCK_BASE_SECONDS / _MAX_SECONDS`     | No                | `60` / `900`                   | Bloqueo temporal progresivo (se duplica; con tope)                   |
+| `PASSWORD_CHANGE_MAX_ATTEMPTS`               | No                | `5`                            | Fallos con la contraseña actual antes de bloquear                    |
+| `PASSWORD_RESET_TTL_MINUTES`                 | No                | `30`                           | Validez del enlace de recuperación                                   |
+| `PASSWORD_RESET_COOLDOWN_SECONDS`            | No                | `60`                           | Espera mínima entre correos de recuperación de una cuenta            |
+| `PASSWORD_RESET_MAX_REQUESTS_PER_IP`         | No                | `10`                           | Solicitudes de recuperación por IP y hora                            |
+| `PASSWORD_RESET_URL`                         | No                | `<CORS_ORIGIN>/reset-password` | URL del frontend para el enlace del correo (`#token=…`)              |
+| `MAIL_TRANSPORT`                             | No                | `disabled`                     | `disabled` \| `console` (solo desarrollo, prohibido en producción)   |
+| `AUTH_RETENTION_DAYS`                        | No                | `30`                           | Días que se conserva lo caducado antes de purgarlo                   |
+| `AUTH_CLEANUP_INTERVAL_MINUTES`              | No                | `360`                          | Purga periódica en proceso (0 = desactivada)                         |
 
 Las variables se validan al arrancar (`class-validator`); si falta o es inválida alguna, la API falla con un mensaje claro.
+Detalle de las de autenticación (límites, correo, proxies): [docs/authentication.md](./docs/authentication.md#10-variables-de-entorno).
 
 ## Scripts (desde la raíz)
 
@@ -102,6 +132,7 @@ Las variables se validan al arrancar (`class-validator`); si falta o es inválid
 | `npm run db:migrate`      | `prisma migrate dev` (crea/aplica migraciones en desarrollo)       |
 | `npm run db:seed`         | Siembra mundo/reglas/retos (idempotente; valida resolubilidad)     |
 | `npm run admin:create`    | Crea un administrador (script operativo; contraseña por consola)   |
+| `npm run auth:cleanup`    | Purga sesiones/tokens/contadores de autenticación caducados        |
 
 En `apps/api` también: `npm run test:cov` (cobertura), `npm run db:studio`, `npm run db:migrate:deploy` (producción).
 
@@ -115,7 +146,8 @@ npm run test:cov -w apps/api      # cobertura de las unitarias
 ```
 
 - **Unitarias:** el motor (parser, evaluador, reglas, temporizador, puntuación, progresión, `GameEngine`),
-  configuración y primitivas de seguridad (hash de contraseñas, JWT). No usan HTTP ni base de datos.
+  configuración y primitivas de seguridad (hash de contraseñas, JWT, política de contraseñas, lógica pura del limitador,
+  normalización de IP, transportes de correo). No usan HTTP ni base de datos.
 - **Integración:** la aplicación Nest COMPLETA (guards, pipes, filtros) sobre HTTP real y **PostgreSQL real**: un
   PGlite (Postgres en WASM) en proceso al que se aplican **las migraciones SQL del repositorio**. No necesitan Docker.
   El reloj del servidor es inyectable (`Clock`), así que los plazos se prueban sin esperas.
@@ -134,13 +166,18 @@ npm run test:cov -w apps/api      # cobertura de las unitarias
 ## API
 
 Swagger UI en `/api/docs` (JSON en `/api/docs-json`). Referencia y ejemplos: [docs/api.md](./docs/api.md).
-Todo endpoint exige `Authorization: Bearer <token>` salvo `/api/auth/*` y `/api/health*`. Los errores siempre tienen
+Todo endpoint exige `Authorization: Bearer <token>` (de una sesión vigente) salvo `/api/auth/{register,login,password/*}` y `/api/health*`. Los errores siempre tienen
 la forma `{ statusCode, error, message, path, timestamp }`.
 
 | Método | Ruta                                                                          | Descripción                                                    |
 | ------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | POST   | `/auth/register`                                                              | Registra un estudiante                                         |
-| POST   | `/auth/login`                                                                 | Devuelve un JWT                                                |
+| POST   | `/auth/login`                                                                 | Crea una sesión revocable y devuelve su JWT (limita intentos)  |
+| POST   | `/auth/change-password`                                                       | Cambia la contraseña propia (revoca todas las sesiones)        |
+| POST   | `/auth/password/forgot` · `/auth/password/reset`                              | Recuperación por correo (respuesta genérica; token de un uso)  |
+| GET    | `/auth/sessions`                                                              | Mis sesiones (vigentes o historial)                            |
+| DELETE | `/auth/sessions/:sessionId`                                                   | Revoca una de mis sesiones                                     |
+| POST   | `/auth/logout` · `/auth/logout-all`                                           | Cierra la sesión actual / todas las mías                       |
 | GET    | `/users/me`                                                                   | Perfil propio                                                  |
 | GET    | `/worlds`                                                                     | Mundos disponibles                                             |
 | GET    | `/progress`                                                                   | Progreso y racha en todos los mundos                           |
@@ -169,16 +206,23 @@ Implementado y verificado:
 - Monorepo, TypeScript, ESLint, Prettier, variables de entorno validadas, Docker Compose para PostgreSQL.
 - **Motor del juego** (TypeScript puro) del Mundo 1: parser seguro, evaluación exacta, reglas extensibles y acumulativas,
   temporizador, racha/puntuación en enteros, progresión y garantía de resolubilidad del catálogo.
+- **Cuentas y autenticación (solo backend)**: sesiones JWT revocables (`jti` ↔ `auth_sessions`; logout, logout-all, revocar una
+  sesión, listado propio), cambio de contraseña, recuperación por correo (token de 256 bits guardado como SHA-256, un solo uso),
+  limitador de login persistente en PostgreSQL (IP, correo e IP+correo; bloqueo temporal progresivo), política de
+  contraseñas y abstracción de correo. Detalle, flujos, configuración y limitaciones: [docs/authentication.md](./docs/authentication.md).
 - **Persistencia y API**: auth JWT (estudiantes/docentes/admin con guards por rol), sesiones, intentos con plazo del
   servidor, resolución transaccional e idempotente, libro de puntos solo-inserción, estadísticas, historial.
 - **Grupos y docentes (solo backend)**: grupos con baja lógica, asignaciones docente↔grupo y membresías con historial, aprovisionamiento
   de docentes por administradores, autorización por grupo con 404 uniforme y API del panel docente (actividad, estadísticas,
   estudiantes, intentos). Sin vistas.
-- Esquema Prisma con 3 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed.
-- Frontend React mínimo (sin cambios en esta fase).
+- Esquema Prisma con 4 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed.
+- **Frontend jugable** (React + Vite, sin dependencias nuevas): registro, login (token en `localStorage`, rutas protegidas),
+  pantalla de juego (reto, reglas activas con la nueva resaltada, cuenta atrás, resultado, reinicio de secuencia),
+  barra de puntos/racha/multiplicador y página «Mi progreso». Solo el Mundo 1; los demás aparecen como «Próximamente».
+  Sin pantallas de panel docente, administración ni recuperación de contraseña (la API sí existe).
 
-**No** implementado (módulos previstos): `rankings`, `rewards`, cambio/recuperación de contraseña,
-refresco/revocación de tokens, límite de peticiones (login),
+**No** implementado (módulos previstos): `rankings`, `rewards`, refresco de tokens, entrega real de correo (no hay proveedor
+configurado: ver [docs/authentication.md](./docs/authentication.md#6-correo-electrónico)), MFA,
 dificultad adaptativa (solo la interfaz `DifficultyPolicy`), mundos 2-5.
 
 ## Motor matemático (resumen)

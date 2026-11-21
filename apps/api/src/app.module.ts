@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
+import authConfig from './config/auth.config';
 import gameConfig from './config/game.config';
 import { HealthModule } from './health/health.module';
 import { CommonModule } from './common';
@@ -18,7 +19,7 @@ import { PrismaModule } from './prisma/prisma.module';
       isGlobal: true,
       envFilePath: ['.env', '../../.env'],
       validate: validateEnv,
-      load: [gameConfig],
+      load: [gameConfig, authConfig],
     }),
     PrismaModule,
     CommonModule,

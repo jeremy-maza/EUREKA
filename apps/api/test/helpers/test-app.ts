@@ -6,8 +6,11 @@ import { Clock } from '../../src/common';
 import { configureApp } from '../../src/common/configure-app';
 import { UserRole } from '../../src/generated/prisma/client';
 import { PasswordHasher } from '../../src/modules/auth/password-hasher';
+import { Mailer } from '../../src/modules/mail';
+import { PasswordService } from '../../src/modules/auth/password.service';
 import { arithmeticWorld, syncWorldCatalog, WorldsRepository } from '../../src/modules/worlds';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { CapturingMailer } from './capturing-mailer';
 import { FakeClock } from './fake-clock';
 
 export const PASSWORD = 'correct-horse-battery';
@@ -15,6 +18,7 @@ export const PASSWORD = 'correct-horse-battery';
 export interface TestContext {
   app: INestApplication;
   clock: FakeClock;
+  mailer: CapturingMailer;
   prisma: PrismaService;
   /** Borra los datos de jugadores (no el catálogo) y reinicia el reloj. */
   reset(): Promise<void>;
@@ -25,9 +29,12 @@ export interface TestContext {
 /** Aplicación Nest COMPLETA (guards, pipes, filtros, Swagger) contra PostgreSQL real y con reloj controlable. */
 export async function createTestApp(): Promise<TestContext> {
   const clock = new FakeClock();
+  const mailer = new CapturingMailer();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(Clock)
     .useValue(clock)
+    .overrideProvider(Mailer)
+    .useValue(mailer)
     .compile();
   const app = moduleRef.createNestApplication();
   configureApp(app);
@@ -39,10 +46,15 @@ export async function createTestApp(): Promise<TestContext> {
   return {
     app,
     clock,
+    mailer,
     prisma,
     http: () => request(app.getHttpServer()),
     async reset() {
-      await prisma.$executeRawUnsafe('TRUNCATE TABLE users, groups CASCADE');
+      // Espera a los correos en segundo plano para que no cuenten en la prueba siguiente.
+      await app.get(PasswordService).drainPendingMail();
+      mailer.clear();
+      // `users` arrastra (CASCADE) sesiones y tokens de recuperación; los contadores no dependen de usuarios.
+      await prisma.$executeRawUnsafe('TRUNCATE TABLE users, groups, auth_throttles CASCADE');
       app.get(WorldsRepository).clearCache();
       clock.advanceMs(0);
     },

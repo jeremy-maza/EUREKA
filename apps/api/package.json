@@ -19,6 +19,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "admin:create": "tsx prisma/create-admin.ts",
+    "auth:cleanup": "tsx prisma/auth-cleanup.ts",
     "db:studio": "prisma studio",
     "test:unit": "jest --selectProjects unit",
     "test:integration": "node --experimental-vm-modules --no-warnings ../../node_modules/jest/bin/jest.js --selectProjects integration --runInBand",

@@ -62,6 +62,24 @@ enum ScoreReason {
   MANUAL_ADJUSTMENT
 }
 
+/// Por qué se revocó una sesión (se conserva como historial; nunca se borra la fila al revocar).
+enum SessionRevocationReason {
+  LOGOUT
+  LOGOUT_ALL
+  SESSION_REVOKED
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+}
+
+/// Ámbito de un contador de limitación de intentos (ver `auth_throttles`).
+enum ThrottleScope {
+  LOGIN_IP
+  LOGIN_EMAIL
+  LOGIN_IP_EMAIL
+  PASSWORD_CHANGE_USER
+  PASSWORD_RESET_REQUEST_IP
+}
+
 // ─────────────────── Usuarios, grupos y docentes ───────────────────
 
 model User {
@@ -81,6 +99,9 @@ model User {
   worldStatistics    WorldStatistics[]
   scoreTransactions  ScoreTransaction[]
 
+  authSessions        AuthSession[]
+  passwordResetTokens PasswordResetToken[]
+
   // Auditoría administrativa: quién creó/asignó/retiró (SetNull al borrar al actor).
   createdGroups      Group[]                  @relation("GroupCreator")
   membershipsAdded   GroupMembership[]        @relation("MembershipAddedBy")
@@ -89,6 +110,65 @@ model User {
   assignmentsRevoked TeacherGroupAssignment[] @relation("AssignmentRevokedBy")
 
   @@map("users")
+}
+
+// ───────────── Sesiones, recuperación de contraseña y limitación de intentos ─────────────
+
+/// Una fila por JWT emitido. `id` es el claim `jti` del token; el JWT en sí NUNCA se guarda.
+/// Una sesión es válida si no está revocada y `expiresAt` es futuro. Revocar = fijar `revokedAt` (historial).
+model AuthSession {
+  id               String                   @id @default(uuid()) @db.Uuid
+  userId           String                   @db.Uuid
+  createdAt        DateTime                 @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revocationReason SessionRevocationReason?
+  /// IP del cliente (según `TRUST_PROXY`) y User-Agent truncado: solo para que el usuario reconozca sus sesiones.
+  ipAddress        String?
+  userAgent        String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+/// Token de recuperación de un solo uso. Solo se guarda el SHA-256 del token; el token en claro solo existe
+/// en el correo enviado al usuario. Índice único parcial (migración): un único token vigente por usuario.
+model PasswordResetToken {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @db.Uuid
+  tokenHash     String    @unique
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  /// Se consumió para cambiar la contraseña.
+  consumedAt    DateTime?
+  /// Lo sustituyó un token más nuevo o un cambio de contraseña.
+  invalidatedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+/// Contador de intentos con bloqueo temporal progresivo. `key` es la IP normalizada, el SHA-256 del correo
+/// normalizado (no se guardan correos de cuentas inexistentes), o el id de usuario. Se actualiza bajo bloqueo
+/// de fila (`FOR UPDATE`), por lo que es seguro con peticiones concurrentes. Las filas obsoletas se purgan.
+model AuthThrottle {
+  scope           ThrottleScope
+  key             String
+  attempts        Int           @default(0)
+  windowStartedAt DateTime
+  lockLevel       Int           @default(0)
+  lockedUntil     DateTime?
+  lastAttemptAt   DateTime
+
+  @@id([scope, key])
+  @@index([lastAttemptAt])
+  @@map("auth_throttles")
 }
 
 /// Los grupos no se borran: se desactivan (INACTIVE) y conservan membresías y asignaciones como historial.

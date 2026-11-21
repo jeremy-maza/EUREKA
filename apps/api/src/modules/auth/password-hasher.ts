@@ -36,7 +36,13 @@ export class PasswordHasher {
     const params = { N: Number(n), r: Number(r), p: Number(p) };
     if (![params.N, params.r, params.p].every(Number.isInteger)) return false;
     const expected = Buffer.from(hash, 'base64');
-    const actual = await derive(password, Buffer.from(salt, 'base64'), params);
+    let actual: Buffer;
+    try {
+      actual = await derive(password, Buffer.from(salt, 'base64'), params);
+    } catch {
+      // Parámetros inválidos o que exceden la memoria permitida (hash corrupto): no coincide, no es un error 500.
+      return false;
+    }
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   }
 }

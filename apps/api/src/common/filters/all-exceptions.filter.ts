@@ -1,5 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { TooManyRequestsException } from '../exceptions/too-many-requests.exception';
 
 export interface ErrorResponseBody {
   statusCode: number;
@@ -46,6 +47,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
       timestamp: new Date().toISOString(),
     };
+    if (exception instanceof TooManyRequestsException) {
+      response.setHeader('Retry-After', String(Math.max(1, Math.ceil(exception.retryAfterSeconds))));
+    }
     response.status(statusCode).json(payload);
   }
 }

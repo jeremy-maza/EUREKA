@@ -3,6 +3,7 @@ import { cursorArgs, toPage } from '../../common';
 import { UserRole } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PasswordHasher } from '../auth/password-hasher';
+import { PasswordPolicy } from '../auth/password-policy';
 import { UserProfileDto, UsersService } from '../users';
 import { CreateTeacherDto, ListTeachersQueryDto, TeacherPageDto } from './dto/admin.dto';
 import { provisionUser } from './provisioning';
@@ -12,11 +13,16 @@ export class AdminTeachersService {
   constructor(
     private readonly users: UsersService,
     private readonly hasher: PasswordHasher,
+    private readonly policy: PasswordPolicy,
     private readonly prisma: PrismaService,
   ) {}
 
-  /** El rol lo fija el servidor (TEACHER); el cliente no puede elegirlo. */
+  /**
+   * El rol lo fija el servidor (TEACHER); el cliente no puede elegirlo. La contraseña es TEMPORAL: el docente la
+   * sustituye con `POST /auth/change-password` en su primer acceso (o usa la recuperación por correo).
+   */
   create(dto: CreateTeacherDto): Promise<UserProfileDto> {
+    this.policy.assert(dto.password, { email: dto.email });
     return provisionUser(this.users, this.hasher, { ...dto, role: UserRole.TEACHER });
   }
 

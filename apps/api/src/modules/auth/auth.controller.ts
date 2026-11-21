@@ -1,10 +1,11 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, HttpStatus, Ip, Post } from '@nestjs/common';
 import {
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Public } from '../../common';
@@ -28,10 +29,15 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Inicia sesión y devuelve un token de acceso JWT' })
+  @ApiOperation({ summary: 'Inicia sesión: crea una sesión revocable y devuelve su token de acceso JWT' })
   @ApiOkResponse({ type: AccessTokenDto })
-  @ApiUnauthorizedResponse({ description: 'Credenciales inválidas' })
-  login(@Body() dto: LoginDto): Promise<AccessTokenDto> {
-    return this.auth.login(dto);
+  @ApiUnauthorizedResponse({ description: 'Credenciales inválidas (misma respuesta si la cuenta no existe)' })
+  @ApiTooManyRequestsResponse({ description: 'Demasiados intentos; cabecera `Retry-After` en segundos' })
+  login(
+    @Body() dto: LoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string | undefined,
+  ): Promise<AccessTokenDto> {
+    return this.auth.login(dto, { ip, userAgent });
   }
 }
