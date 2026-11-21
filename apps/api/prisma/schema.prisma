@@ -19,6 +19,23 @@ enum UserRole {
   ADMIN
 }
 
+enum GroupStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Una membresía nunca se borra: al retirar al estudiante pasa a REMOVED (historial).
+enum MembershipStatus {
+  ACTIVE
+  REMOVED
+}
+
+/// Una asignación nunca se borra: al retirar al docente pasa a REVOKED (historial).
+enum AssignmentStatus {
+  ACTIVE
+  REVOKED
+}
+
 enum ProgressStatus {
   IN_PROGRESS
   COMPLETED
@@ -56,58 +73,93 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  groupMemberships   GroupMembership[]
-  teacherAssignments TeacherGroupAssignment[]
+  groupMemberships   GroupMembership[]        @relation("MembershipStudent")
+  teacherAssignments TeacherGroupAssignment[] @relation("AssignmentTeacher")
   worldProgress      StudentWorldProgress[]
   gameSessions       GameSession[]
   attempts           ChallengeAttempt[]
   worldStatistics    WorldStatistics[]
   scoreTransactions  ScoreTransaction[]
 
+  // Auditoría administrativa: quién creó/asignó/retiró (SetNull al borrar al actor).
+  createdGroups      Group[]                  @relation("GroupCreator")
+  membershipsAdded   GroupMembership[]        @relation("MembershipAddedBy")
+  membershipsRemoved GroupMembership[]        @relation("MembershipRemovedBy")
+  assignmentsMade    TeacherGroupAssignment[] @relation("AssignmentAssignedBy")
+  assignmentsRevoked TeacherGroupAssignment[] @relation("AssignmentRevokedBy")
+
   @@map("users")
 }
 
+/// Los grupos no se borran: se desactivan (INACTIVE) y conservan membresías y asignaciones como historial.
+/// Un grupo INACTIVE es de solo lectura para los docentes.
 model Group {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String      @id @default(uuid(7)) @db.Uuid
+  name          String
+  description   String?
+  status        GroupStatus @default(ACTIVE)
+  deactivatedAt DateTime?
+  /// Administrador que lo creó (null si ese usuario fue eliminado).
+  createdById   String?     @db.Uuid
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
+  createdBy          User?                    @relation("GroupCreator", fields: [createdById], references: [id], onDelete: SetNull)
   memberships        GroupMembership[]
   teacherAssignments TeacherGroupAssignment[]
 
+  @@index([status])
   @@map("groups")
 }
 
-/// Un estudiante puede pertenecer a varios grupos.
+/// Un estudiante puede pertenecer a varios grupos. Historial: una fila por periodo de pertenencia.
+/// Invariantes en BD (SQL manual de la migración `…_groups_and_teachers`):
+///  - índice único parcial: una única membresía ACTIVE por (userId, groupId);
+///  - CHECK: `status = REMOVED` ⇔ `removedAt` informado;
+///  - trigger: al insertar, `userId` debe tener rol STUDENT.
 model GroupMembership {
-  id       String   @id @default(uuid(7)) @db.Uuid
-  userId   String   @db.Uuid
-  groupId  String   @db.Uuid
-  joinedAt DateTime @default(now())
+  id          String           @id @default(uuid(7)) @db.Uuid
+  userId      String           @db.Uuid
+  groupId     String           @db.Uuid
+  status      MembershipStatus @default(ACTIVE)
+  joinedAt    DateTime         @default(now())
+  removedAt   DateTime?
+  addedById   String?          @db.Uuid
+  removedById String?          @db.Uuid
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User  @relation("MembershipStudent", fields: [userId], references: [id], onDelete: Cascade)
+  group     Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  addedBy   User? @relation("MembershipAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  removedBy User? @relation("MembershipRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
 
-  @@unique([userId, groupId])
-  @@index([groupId])
+  @@index([groupId, status])
+  @@index([userId, status])
   @@map("group_memberships")
 }
 
 /// Un docente gestiona varios grupos y un grupo puede tener varios docentes.
-/// La autorización del docente se deriva únicamente de esta tabla.
-/// Invariante de aplicación: `teacherId` debe referir a un usuario con rol TEACHER.
+/// La autorización del docente se deriva únicamente de las filas ACTIVE de esta tabla.
+/// Invariantes en BD (SQL manual de la migración `…_groups_and_teachers`):
+///  - índice único parcial: una única asignación ACTIVE por (teacherId, groupId);
+///  - CHECK: `status = REVOKED` ⇔ `revokedAt` informado;
+///  - trigger: al insertar, `teacherId` debe tener rol TEACHER.
 model TeacherGroupAssignment {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  teacherId  String   @db.Uuid
-  groupId    String   @db.Uuid
-  assignedAt DateTime @default(now())
+  id           String           @id @default(uuid(7)) @db.Uuid
+  teacherId    String           @db.Uuid
+  groupId      String           @db.Uuid
+  status       AssignmentStatus @default(ACTIVE)
+  assignedAt   DateTime         @default(now())
+  revokedAt    DateTime?
+  assignedById String?          @db.Uuid
+  revokedById  String?          @db.Uuid
 
-  teacher User  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  teacher    User  @relation("AssignmentTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  group      Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedBy User? @relation("AssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  revokedBy  User? @relation("AssignmentRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
 
-  @@unique([teacherId, groupId])
-  @@index([groupId])
+  @@index([groupId, status])
+  @@index([teacherId, status])
   @@map("teacher_group_assignments")
 }
 

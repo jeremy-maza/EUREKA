@@ -20,6 +20,34 @@ export interface WorldStatisticsSnapshot {
   ruleViolationCounts: Record<string, number>;
 }
 
+/** Fila de `WorldStatistics` ya traducida, con el total de tiempos (necesario para promediar entre estudiantes). */
+export interface WorldStatisticsRow {
+  userId: string;
+  worldId: string;
+  snapshot: WorldStatisticsSnapshot;
+  /** Suma de `elapsedMs` de los aciertos: permite agregar promedios sin pérdida (total / aciertos). */
+  totalCorrectElapsedMs: number;
+}
+
+function toSnapshot(row: {
+  attemptsCount: number;
+  correctCount: number;
+  incorrectCount: number;
+  timeoutCount: number;
+  totalCorrectElapsedMs: number;
+  ruleViolationCounts: Prisma.JsonValue;
+}): WorldStatisticsSnapshot {
+  return {
+    attemptsCount: row.attemptsCount,
+    correctCount: row.correctCount,
+    incorrectCount: row.incorrectCount,
+    timeoutCount: row.timeoutCount,
+    averageCorrectElapsedMs:
+      row.correctCount > 0 ? Math.round(row.totalCorrectElapsedMs / row.correctCount) : null,
+    ruleViolationCounts: row.ruleViolationCounts as Record<string, number>,
+  };
+}
+
 const EMPTY: WorldStatisticsSnapshot = {
   attemptsCount: 0,
   correctCount: 0,
@@ -63,14 +91,24 @@ export class StatisticsService {
   ): Promise<WorldStatisticsSnapshot> {
     const row = await db.worldStatistics.findUnique({ where: { userId_worldId: { userId, worldId } } });
     if (!row) return { ...EMPTY };
-    return {
-      attemptsCount: row.attemptsCount,
-      correctCount: row.correctCount,
-      incorrectCount: row.incorrectCount,
-      timeoutCount: row.timeoutCount,
-      averageCorrectElapsedMs:
-        row.correctCount > 0 ? Math.round(row.totalCorrectElapsedMs / row.correctCount) : null,
-      ruleViolationCounts: row.ruleViolationCounts as Record<string, number>,
-    };
+    return toSnapshot(row);
+  }
+
+  /**
+   * Lectura masiva (una sola consulta) para varios jugadores y mundos; usada por el panel docente.
+   * Solo devuelve filas existentes: la ausencia de fila significa que el jugador nunca ha jugado ese mundo.
+   * El llamador es responsable de haber autorizado el acceso a `userIds`.
+   */
+  async getMany(userIds: readonly string[], worldIds: readonly string[]): Promise<WorldStatisticsRow[]> {
+    if (userIds.length === 0 || worldIds.length === 0) return [];
+    const rows = await this.prisma.worldStatistics.findMany({
+      where: { userId: { in: [...userIds] }, worldId: { in: [...worldIds] } },
+    });
+    return rows.map((row) => ({
+      userId: row.userId,
+      worldId: row.worldId,
+      snapshot: toSnapshot(row),
+      totalCorrectElapsedMs: row.totalCorrectElapsedMs,
+    }));
   }
 }

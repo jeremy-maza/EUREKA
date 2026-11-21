@@ -4,8 +4,11 @@ import { validateEnv } from './config/env.validation';
 import gameConfig from './config/game.config';
 import { HealthModule } from './health/health.module';
 import { CommonModule } from './common';
+import { AdminModule } from './modules/admin';
 import { AuthModule } from './modules/auth';
 import { GameModule } from './modules/game';
+import { GroupsModule } from './modules/groups';
+import { TeacherDashboardModule } from './modules/teacher-dashboard';
 import { UsersModule } from './modules/users';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -23,6 +26,9 @@ import { PrismaModule } from './prisma/prisma.module';
     UsersModule,
     AuthModule,
     GameModule,
+    GroupsModule,
+    AdminModule,
+    TeacherDashboardModule,
   ],
 })
 export class AppModule {}

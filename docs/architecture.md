@@ -14,21 +14,22 @@ El backend se organiza por **dominios**, no por capas genéricas. Las clases del
 
 ### Módulos del backend (`apps/api/src`)
 
-| Módulo / carpeta                       | Estado       | Responsabilidad                                                                                                                 |
-| -------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `modules/challenges`                   | Implementado | Parser, evaluador, reglas, `RuleEngine`, `RuleAccumulator`, `ChallengeEngine`                                                   |
-| `modules/worlds`                       | Implementado | Catálogo de mundos (Mundo 1) y validador de catálogos (garantía de resolubilidad)                                               |
-| `modules/scoring`                      | Implementado | `StreakManager`, `ScoringEngine` (aritmética entera), `ScoreService` (libro de puntos)                                          |
-| `modules/statistics`                   | Implementado | `StatisticsService`: agregados por jugador y mundo (misma transacción que el intento)                                           |
-| `modules/auth`, `modules/users`        | Implementado | Registro/login, JWT HS256, hash `scrypt`, guards global y de roles, perfil                                                      |
-| `modules/progression`                  | Implementado | `ProgressionManager` (puro) y `ProgressionService` (persistencia con bloqueo de fila)                                           |
-| `modules/game`                         | Implementado | `TimerManager`, `GameEngine` (fachada pura), `GameService` (capa de aplicación), controladores de juego y de estado del jugador |
-| `prisma`, `health`, `common`, `config` | Implementado | BD, health, `Clock` inyectable, filtro de errores/Swagger, decoradores, entorno                                                 |
-| `groups`, `teacher-dashboard`          | Pendiente    | Grupos, asignaciones y vistas de docentes (el modelo de datos ya existe)                                                        |
-| `rankings`, `rewards`                  | Pendiente    | Derivados de `ScoreTransaction` y del historial de intentos                                                                     |
+| Módulo / carpeta                       | Estado       | Responsabilidad                                                                                                                                      |
+| -------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modules/challenges`                   | Implementado | Parser, evaluador, reglas, `RuleEngine`, `RuleAccumulator`, `ChallengeEngine`                                                                        |
+| `modules/worlds`                       | Implementado | Catálogo de mundos (Mundo 1) y validador de catálogos (garantía de resolubilidad)                                                                    |
+| `modules/scoring`                      | Implementado | `StreakManager`, `ScoringEngine` (aritmética entera), `ScoreService` (libro de puntos)                                                               |
+| `modules/statistics`                   | Implementado | `StatisticsService`: agregados por jugador y mundo (misma transacción que el intento)                                                                |
+| `modules/auth`, `modules/users`        | Implementado | Registro/login, JWT HS256, hash `scrypt`, guards global y de roles, perfil                                                                           |
+| `modules/progression`                  | Implementado | `ProgressionManager` (puro) y `ProgressionService` (persistencia con bloqueo de fila)                                                                |
+| `modules/game`                         | Implementado | `TimerManager`, `GameEngine` (fachada pura), `GameService` (capa de aplicación), controladores de juego y de estado del jugador                      |
+| `prisma`, `health`, `common`, `config` | Implementado | BD, health, `Clock` inyectable, filtro de errores/Swagger, decoradores, entorno                                                                      |
+| `modules/groups`, `modules/admin`      | Implementado | Grupos, asignaciones docentes, membresías, `GroupAccessService` (autorización) y aprovisionamiento de docentes ([detalle](./groups-and-teachers.md)) |
+| `modules/teacher-dashboard`            | Implementado | API del panel docente (actividad, estadísticas y estudiantes por grupo asignado); reutiliza `statistics` y `progression`                             |
+| `rankings`, `rewards`                  | Pendiente    | Derivados de `ScoreTransaction` y del historial de intentos                                                                                          |
 
 Dependencias entre módulos (acíclicas): `challenges ← worlds ← progression ← game`, `scoring ← game`, `statistics ← game`;
-`auth → users`. Las lecturas del estado del jugador (progreso/puntos/historial) viven en `game` porque deben cerrar por
+`auth → users`; `groups ← admin`; `groups + statistics + progression + worlds ← teacher-dashboard`. Las lecturas del estado del jugador (progreso/puntos/historial) viven en `game` porque deben cerrar por
 tiempo los intentos vencidos antes de leer (así evitan una dependencia circular `progression ↔ game`).
 
 ### Capa de aplicación del juego (`GameService`)
@@ -121,15 +122,15 @@ Entidades (Prisma, `apps/api/prisma/schema.prisma`): `User`, `Group`, `GroupMemb
 `World`, `Rule`, `Challenge`, `StudentWorldProgress`, `UnlockedRule`, `GameSession`, `ChallengeAttempt`,
 `ScoreTransaction`, `WorldStatistics`.
 
-| Requisito                                             | Cómo se cubre                                                                          |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Estudiante en varios grupos                           | `GroupMembership` con `@@unique([userId, groupId])`                                    |
-| Docente con varios grupos / grupo con varios docentes | `TeacherGroupAssignment` (N:M); la autorización se deriva solo de esta tabla           |
-| Estudiante en varios mundos, racha independiente      | `StudentWorldProgress` único por `(userId, worldId)` con su propia racha/puntos        |
-| Reglas acumuladas por jugador y mundo                 | `UnlockedRule` ligada al progreso; sobrevive a fallos y nuevas sesiones                |
-| Historial incluyendo fallos y timeouts                | `ChallengeAttempt` (`outcome`, `failureReason`, `submission`, tiempos, reglas activas) |
-| Puntos auditables                                     | `ScoreTransaction` solo-inserción, 1:1 con el intento (`attemptId` único)              |
-| Reglas separadas de los retos                         | `Rule` propia; `Challenge.introducesRuleId` (único) solo la referencia                 |
+| Requisito                                             | Cómo se cubre                                                                                                             |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Estudiante en varios grupos                           | `GroupMembership` (única **activa** por `(userId, groupId)`: índice parcial; historial por filas `REMOVED`)               |
+| Docente con varios grupos / grupo con varios docentes | `TeacherGroupAssignment` (N:M, única **activa** por par; historial `REVOKED`); autorización solo desde sus filas `ACTIVE` |
+| Estudiante en varios mundos, racha independiente      | `StudentWorldProgress` único por `(userId, worldId)` con su propia racha/puntos                                           |
+| Reglas acumuladas por jugador y mundo                 | `UnlockedRule` ligada al progreso; sobrevive a fallos y nuevas sesiones                                                   |
+| Historial incluyendo fallos y timeouts                | `ChallengeAttempt` (`outcome`, `failureReason`, `submission`, tiempos, reglas activas)                                    |
+| Puntos auditables                                     | `ScoreTransaction` solo-inserción, 1:1 con el intento (`attemptId` único)                                                 |
+| Reglas separadas de los retos                         | `Rule` propia; `Challenge.introducesRuleId` (único) solo la referencia                                                    |
 
 Decisiones y omisiones deliberadas:
 
@@ -143,7 +144,8 @@ Decisiones y omisiones deliberadas:
 - IDs `uuid(7)` (ordenables por tiempo). Tiempos `timestamp` en UTC.
 - `StudentWorldProgress.totalPoints` es una caché; la fuente auditable es la suma de `ScoreTransaction.points`.
 - Un único intento por reto presentado: `ChallengeAttempt` se crea `PENDING` al iniciar el reto y se resuelve una sola vez.
-- Invariante de aplicación: `TeacherGroupAssignment.teacherId` debe ser un usuario con rol `TEACHER`.
+- Invariantes de rol: `TeacherGroupAssignment.teacherId` debe ser `TEACHER` y `GroupMembership.userId` debe ser `STUDENT`; se validan en la
+  aplicación (422) y se refuerzan con triggers `BEFORE INSERT` (migración `…_groups_and_teachers`). Los grupos no se borran: se desactivan.
 
 ### Integridad en la base de datos (migración `…_game_persistence`, SQL manual)
 
@@ -160,12 +162,13 @@ Prisma no expresa estos objetos; viven en el SQL de la migración (las pruebas d
 ### Integridad de la puntuación y autorización
 
 - El cliente **nunca** envía puntos, tiempos ni rachas: solo la respuesta. Todo se calcula y persiste en el servidor.
-- Los docentes solo accederán a estudiantes de grupos que tengan en `TeacherGroupAssignment` (a aplicar en `teacher-dashboard`).
+- Los docentes solo acceden a grupos con asignación activa y a estudiantes con membresía activa en ellos (`GroupAccessService`;
+  404 uniforme fuera de alcance). Ver [groups-and-teachers.md](./groups-and-teachers.md#4-reglas-de-autorización).
 - Autenticación: JWT HS256 de acceso (`JWT_SECRET`, `JWT_EXPIRES_IN_SECONDS`). Guard **global** que deniega por defecto
   (`@Public()` para excepciones) y recarga al usuario de la BD en cada petición (cuentas eliminadas o cambios de rol
   surten efecto al instante); `@Roles(...)` para restringir. Los endpoints de juego son **solo para estudiantes**.
 - Propiedad: todas las consultas filtran por el `userId` del token; una sesión/intento ajeno responde **404** (no filtra
-  su existencia). El autorregistro solo crea estudiantes; docentes y administradores se crean por vía administrativa.
+  su existencia). El autorregistro solo crea estudiantes; los docentes los crea un administrador (`POST /admin/teachers`) y los administradores, el script `npm run admin:create`.
 - Nada de lo que el cliente envía determina puntos, racha, reglas, resultado esperado ni tiempos. La solución de
   referencia y el resultado esperado jamás salen en ninguna respuesta.
 
@@ -187,7 +190,11 @@ Prisma no expresa estos objetos; viven en el SQL de la migración (las pruebas d
    `exp`). Se aisló tras `issue`/`verify` para sustituirlo por `@nestjs/jwt` o `jose` sin tocar el resto. _Pendiente:_ refresco/revocación.
 9. **Pruebas de integración con PGlite.** Postgres real en WASM con las migraciones del repo: sin Docker y deterministas.
    Se ejecuta en serie con un pool de 1 conexión (ver limitaciones en el README).
-10. **Dependencias evitadas:** `concurrently`, `bcrypt`, `passport`, librerías de matemáticas/parsers (`mathjs`, `expr-eval`), `@nestjs/terminus`,
+10. **Grupos: baja lógica con historial y autorización centralizada.** Membresías y asignaciones nunca se borran (`REMOVED`/`REVOKED`
+    con quién y cuándo) y la unicidad vigente se garantiza con índices únicos parciales. Todo acceso por grupo pasa por
+    `GroupAccessService` (404 uniforme). El administrador (`ADMIN`, ya existente en `UserRole`) se aprovisiona solo con un script
+    operativo; no hay ruta HTTP para crearlo. El panel docente solo lee agregados existentes (sin duplicar lógica de puntuación).
+11. **Dependencias evitadas:** `concurrently`, `bcrypt`, `passport`, librerías de matemáticas/parsers (`mathjs`, `expr-eval`), `@nestjs/terminus`,
     `@nestjs/throttler`. Se reevaluarán cuando exista una necesidad real.
 
 ## Supuestos (a confirmar)

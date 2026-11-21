@@ -101,6 +101,7 @@ Las variables se validan al arrancar (`class-validator`); si falta o es inválid
 | `npm run db:generate`     | `prisma generate`                                                  |
 | `npm run db:migrate`      | `prisma migrate dev` (crea/aplica migraciones en desarrollo)       |
 | `npm run db:seed`         | Siembra mundo/reglas/retos (idempotente; valida resolubilidad)     |
+| `npm run admin:create`    | Crea un administrador (script operativo; contraseña por consola)   |
 
 En `apps/api` también: `npm run test:cov` (cobertura), `npm run db:studio`, `npm run db:migrate:deploy` (producción).
 
@@ -136,22 +137,30 @@ Swagger UI en `/api/docs` (JSON en `/api/docs-json`). Referencia y ejemplos: [do
 Todo endpoint exige `Authorization: Bearer <token>` salvo `/api/auth/*` y `/api/health*`. Los errores siempre tienen
 la forma `{ statusCode, error, message, path, timestamp }`.
 
-| Método | Ruta                             | Descripción                                                    |
-| ------ | -------------------------------- | -------------------------------------------------------------- |
-| POST   | `/auth/register`                 | Registra un estudiante                                         |
-| POST   | `/auth/login`                    | Devuelve un JWT                                                |
-| GET    | `/users/me`                      | Perfil propio                                                  |
-| GET    | `/worlds`                        | Mundos disponibles                                             |
-| GET    | `/progress`                      | Progreso y racha en todos los mundos                           |
-| GET    | `/worlds/:slug/progress`         | Progreso, racha, reglas, estadísticas en un mundo              |
-| GET    | `/worlds/:slug/rules`            | Reglas acumuladas                                              |
-| GET    | `/worlds/:slug/score`            | Puntos, racha, multiplicador y libro de puntos reciente        |
-| GET    | `/worlds/:slug/attempts`         | Historial de intentos (cursor)                                 |
-| POST   | `/worlds/:slug/sessions`         | Inicia (201) o reanuda (200) la sesión                         |
-| POST   | `/sessions/:id/end`              | Termina la sesión                                              |
-| POST   | `/sessions/:id/attempts`         | Inicia el reto actual (arranca el plazo) o devuelve el abierto |
-| GET    | `/sessions/:id/attempts/current` | Reto en curso                                                  |
-| POST   | `/attempts/:id/answer`           | Envía la expresión (única entrada del cliente)                 |
+| Método | Ruta                                                                          | Descripción                                                    |
+| ------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| POST   | `/auth/register`                                                              | Registra un estudiante                                         |
+| POST   | `/auth/login`                                                                 | Devuelve un JWT                                                |
+| GET    | `/users/me`                                                                   | Perfil propio                                                  |
+| GET    | `/worlds`                                                                     | Mundos disponibles                                             |
+| GET    | `/progress`                                                                   | Progreso y racha en todos los mundos                           |
+| GET    | `/worlds/:slug/progress`                                                      | Progreso, racha, reglas, estadísticas en un mundo              |
+| GET    | `/worlds/:slug/rules`                                                         | Reglas acumuladas                                              |
+| GET    | `/worlds/:slug/score`                                                         | Puntos, racha, multiplicador y libro de puntos reciente        |
+| GET    | `/worlds/:slug/attempts`                                                      | Historial de intentos (cursor)                                 |
+| POST   | `/worlds/:slug/sessions`                                                      | Inicia (201) o reanuda (200) la sesión                         |
+| POST   | `/sessions/:id/end`                                                           | Termina la sesión                                              |
+| POST   | `/sessions/:id/attempts`                                                      | Inicia el reto actual (arranca el plazo) o devuelve el abierto |
+| GET    | `/sessions/:id/attempts/current`                                              | Reto en curso                                                  |
+| POST   | `/attempts/:id/answer`                                                        | Envía la expresión (única entrada del cliente)                 |
+| GET    | `/users/me/groups`                                                            | Grupos del estudiante (con sus docentes)                       |
+| POST   | `/admin/teachers`                                                             | Crea un docente (solo `ADMIN`)                                 |
+| \*     | `/admin/groups…`                                                              | Grupos, asignaciones docentes y membresías (solo `ADMIN`)      |
+| \*     | `/teacher/groups…`                                                            | Mis grupos y membresías (solo `TEACHER`, grupos asignados)     |
+| GET    | `/teacher/dashboard`, `/teacher/groups/:id/{dashboard,statistics,students/…}` | Panel docente (datos)                                          |
+
+Grupos, docentes, autorización y métricas del panel: [docs/groups-and-teachers.md](./docs/groups-and-teachers.md).
+Primer administrador: `ADMIN_EMAIL=… ADMIN_NAME=… npm run admin:create` (ver el documento anterior, sección 3).
 
 ## Alcance actual
 
@@ -162,11 +171,14 @@ Implementado y verificado:
   temporizador, racha/puntuación en enteros, progresión y garantía de resolubilidad del catálogo.
 - **Persistencia y API**: auth JWT (estudiantes/docentes/admin con guards por rol), sesiones, intentos con plazo del
   servidor, resolución transaccional e idempotente, libro de puntos solo-inserción, estadísticas, historial.
-- Esquema Prisma con 2 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed.
+- **Grupos y docentes (solo backend)**: grupos con baja lógica, asignaciones docente↔grupo y membresías con historial, aprovisionamiento
+  de docentes por administradores, autorización por grupo con 404 uniforme y API del panel docente (actividad, estadísticas,
+  estudiantes, intentos). Sin vistas.
+- Esquema Prisma con 3 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed.
 - Frontend React mínimo (sin cambios en esta fase).
 
-**No** implementado (módulos previstos): `groups` y `teacher-dashboard` (el modelo de datos ya existe), `rankings`,
-`rewards`, creación de docentes/admins (hoy solo por BD), refresco/revocación de tokens, límite de peticiones (login),
+**No** implementado (módulos previstos): `rankings`, `rewards`, cambio/recuperación de contraseña,
+refresco/revocación de tokens, límite de peticiones (login),
 dificultad adaptativa (solo la interfaz `DifficultyPolicy`), mundos 2-5.
 
 ## Motor matemático (resumen)

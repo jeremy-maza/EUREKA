@@ -15,7 +15,7 @@ export class AuthService {
     private readonly tokens: TokenService,
   ) {}
 
-  /** El autorregistro SIEMPRE crea estudiantes; los docentes los crea un administrador (pendiente). */
+  /** El autorregistro SIEMPRE crea estudiantes; los docentes los crea un administrador (`POST /admin/teachers`). */
   async register(dto: RegisterDto): Promise<UserProfileDto> {
     const passwordHash = await this.hasher.hash(dto.password);
     const user = await this.users.create({ email: dto.email, displayName: dto.displayName, passwordHash });

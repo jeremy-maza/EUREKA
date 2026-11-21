@@ -58,13 +58,18 @@ export class Player {
     readonly userId: string,
   ) {}
 
-  static async register(ctx: TestContext, email: string, role: UserRole = UserRole.STUDENT): Promise<Player> {
+  static async register(
+    ctx: TestContext,
+    email: string,
+    role: UserRole = UserRole.STUDENT,
+    displayName?: string,
+  ): Promise<Player> {
     let userId: string;
     if (role === UserRole.STUDENT) {
       const res = await ctx
         .http()
         .post('/api/auth/register')
-        .send({ email, displayName: 'Jugador', password: PASSWORD })
+        .send({ email, displayName: displayName ?? 'Jugador', password: PASSWORD })
         .expect(201);
       userId = res.body.id;
     } else {
@@ -72,7 +77,7 @@ export class Player {
       const user = await ctx.prisma.user.create({
         data: {
           email,
-          displayName: 'Docente',
+          displayName: displayName ?? (role === UserRole.ADMIN ? 'Admin' : 'Docente'),
           passwordHash: await new PasswordHasher().hash(PASSWORD),
           role,
         },
@@ -85,6 +90,9 @@ export class Player {
 
   get = (path: string) => this.ctx.http().get(`/api${path}`).set('Authorization', `Bearer ${this.token}`);
   post = (path: string) => this.ctx.http().post(`/api${path}`).set('Authorization', `Bearer ${this.token}`);
+  patch = (path: string) => this.ctx.http().patch(`/api${path}`).set('Authorization', `Bearer ${this.token}`);
+  delete = (path: string) =>
+    this.ctx.http().delete(`/api${path}`).set('Authorization', `Bearer ${this.token}`);
 
   startSession(world = 'arithmetic') {
     return this.post(`/worlds/${world}/sessions`);

@@ -12,6 +12,18 @@ export interface StoredProgress {
   unlockedRules: { key: string; unlockedAt: Date }[];
 }
 
+/** Resumen del progreso de un (jugador, mundo) para lecturas masivas (panel docente). */
+export interface ProgressSummary {
+  userId: string;
+  worldId: string;
+  currentPosition: number;
+  streak: number;
+  bestStreak: number;
+  totalPoints: number;
+  status: WorldProgressState['status'];
+  unlockedRulesCount: number;
+}
+
 /**
  * Persistencia del progreso por (jugador, mundo). Traduce entre filas de BD y el `WorldProgressState`
  * inmutable que usa el motor. Todas las escrituras reciben el cliente transaccional del llamador.
@@ -59,6 +71,29 @@ export class ProgressionService {
         status: row.status,
       },
     };
+  }
+
+  /**
+   * Lectura masiva y sin efectos (una consulta) del progreso de varios jugadores. Misma fuente que `read`
+   * (`StudentWorldProgress`), por lo que puntos y rachas coinciden con los que ve el propio jugador.
+   * Solo devuelve filas existentes. El llamador es responsable de haber autorizado el acceso a `userIds`.
+   */
+  async listSummaries(userIds: readonly string[], worldIds: readonly string[]): Promise<ProgressSummary[]> {
+    if (userIds.length === 0 || worldIds.length === 0) return [];
+    const rows = await this.prisma.studentWorldProgress.findMany({
+      where: { userId: { in: [...userIds] }, worldId: { in: [...worldIds] } },
+      include: { _count: { select: { unlockedRules: true } } },
+    });
+    return rows.map((row) => ({
+      userId: row.userId,
+      worldId: row.worldId,
+      currentPosition: row.currentPosition,
+      streak: row.currentStreak,
+      bestStreak: row.bestStreak,
+      totalPoints: row.totalPoints,
+      status: row.status,
+      unlockedRulesCount: row._count.unlockedRules,
+    }));
   }
 
   /**

@@ -1,7 +1,8 @@
 # Referencia rápida de la API
 
 Base: `http://localhost:3000/api` · Swagger interactivo: `/api/docs` · Todo (salvo `/auth/*` y `/health*`) requiere
-`Authorization: Bearer <accessToken>`. Los endpoints de juego son solo para estudiantes (otros roles reciben 403).
+`Authorization: Bearer <accessToken>`. Los endpoints de juego son solo para estudiantes (otros roles reciben 403). Grupos, docentes y panel docente: ver
+[groups-and-teachers.md](./groups-and-teachers.md).
 
 ## Flujo de una partida
 
@@ -64,3 +65,25 @@ Formato de respuesta aceptado: `expresión` o `expresión = resultado` (p. ej. `
 | POST   | `/attempts/:id/answer`                  | 200, 400, 404, 409  | Cuerpo: `{ "expression": "…" }`                                |
 
 Puntos: enteros. `multiplierMilli` en milésimas (1500 = 1.5x) y `multiplier` como texto (`"1.5"`).
+
+## Grupos, docentes y panel docente
+
+Detalle completo, semántica de métricas, autorización y ejemplos en [groups-and-teachers.md](./groups-and-teachers.md).
+
+| Método   | Ruta                                                                    | Rol     | Códigos                |
+| -------- | ----------------------------------------------------------------------- | ------- | ---------------------- |
+| POST     | `/admin/teachers`                                                       | ADMIN   | 201, 400, 403, 409     |
+| POST     | `/admin/groups` · GET `/admin/groups` · GET/PATCH `…/:id`               | ADMIN   | 201/200, 400, 404      |
+| POST     | `/admin/groups/:id/deactivate` · `/reactivate`                          | ADMIN   | 200, 404, 409          |
+| GET/POST | `/admin/groups/:id/teachers`                                            | ADMIN   | 200/201, 404, 409, 422 |
+| DELETE   | `/admin/groups/:id/teachers/:teacherId`                                 | ADMIN   | 204, 404               |
+| GET      | `/teacher/groups` · `/teacher/groups/:id`                               | TEACHER | 200, 404               |
+| PATCH    | `/teacher/groups/:id`                                                   | TEACHER | 200, 400, 404, 409     |
+| GET/POST | `/teacher/groups/:id/students`                                          | TEACHER | 200/201, 404, 409, 422 |
+| DELETE   | `/teacher/groups/:id/students/:studentId`                               | TEACHER | 204, 404, 409          |
+| GET      | `/teacher/dashboard`                                                    | TEACHER | 200                    |
+| GET      | `/teacher/groups/:id/dashboard` · `/dashboard/students` · `/statistics` | TEACHER | 200, 404               |
+| GET      | `/teacher/groups/:id/students/:studentId` · `/statistics` · `/attempts` | TEACHER | 200, 404               |
+| GET      | `/users/me/groups`                                                      | STUDENT | 200                    |
+
+Un grupo o estudiante fuera del alcance del docente responde siempre **404** (igual que si no existiera).
