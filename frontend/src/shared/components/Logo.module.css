@@ -1,0 +1,40 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #35556a;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1;
+}
+
+.logo span span {
+  color: var(--primary);
+}
+
+.mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 2px solid #ffc950;
+  border-radius: 14px;
+  color: #fff;
+  background: #ffad4f;
+  box-shadow: 0 4px 0 #e88c38;
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.compact {
+  gap: 7px;
+  font-size: 18px;
+}
+
+.compact .mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 16px;
+}
