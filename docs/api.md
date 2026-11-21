@@ -60,7 +60,7 @@ Formato de respuesta aceptado: `expresión` o `expresión = resultado` (p. ej. `
 | GET    | `/worlds/:slug/score?limit=`            | 200, 404            | Total, racha, próximo multiplicador, libro de puntos reciente                                                                 |
 | GET    | `/worlds/:slug/leaderboard?limit=`      | 200, 404            | Clasificación por puntos **solo entre compañeros de grupo** (sin grupo: solo el jugador); nombre y puntos, sin ids ni correos |
 | GET    | `/worlds/:slug/attempts?limit=&cursor=` | 200, 400, 404       | Historial (fallos y timeouts incluidos), más recientes primero                                                                |
-| POST   | `/worlds/:slug/sessions`                | 201 / 200, 404      | Crea o reanuda                                                                                                                |
+| POST   | `/worlds/:slug/sessions`                | 201 / 200, 404      | Crea o reanuda; `expiredAttempt` ≠ null si un reto venció en la ausencia (TIMEOUT)                                            |
 | POST   | `/sessions/:id/end`                     | 200, 404, 409       | 409 si hay un reto vigente                                                                                                    |
 | POST   | `/sessions/:id/attempts`                | 201 / 200, 404, 409 | Crea o reanuda el intento abierto                                                                                             |
 | GET    | `/sessions/:id/attempts/current`        | 200, 404            |                                                                                                                               |

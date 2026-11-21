@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, RotateCcw, Send, Sparkles } from 'lucide-react'
+import { ArrowLeft, Clock, RotateCcw, Send, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants'
 import { FloatingIsland } from '@/features/game/components/FloatingIsland'
@@ -82,6 +82,8 @@ export function GamePage() {
   const [feedback, setFeedback] = useState<Feedback>('idle')
   const [discoveredRule, setDiscoveredRule] = useState<Rule | null>(null)
   const [isRuleToastLeaving, setIsRuleToastLeaving] = useState(false)
+  const [hasExpiredNotice, setHasExpiredNotice] = useState(false)
+  const [isExpiredNoticeLeaving, setIsExpiredNoticeLeaving] = useState(false)
   const sessionIdRef = useRef<string | null>(null)
   const runRef = useRef(0)
   const isSubmittingRef = useRef(false)
@@ -120,7 +122,7 @@ export function GamePage() {
   /** Abre (o reanuda) la sesión del mundo 1 y el reto actual. Devuelve `false` si una carga más reciente la reemplazó. */
   const startRun = useCallback(async () => {
     const runId = ++runRef.current
-    const { session } = await api.startSession(ARITHMETIC_WORLD_SLUG)
+    const { session, expiredAttempt } = await api.startSession(ARITHMETIC_WORLD_SLUG)
     const first = await api.startAttempt(session.id)
     const progress = await api.worldProgress(ARITHMETIC_WORLD_SLUG)
     if (runRef.current !== runId) return false
@@ -128,6 +130,9 @@ export function GamePage() {
     completedRef.current = false
     applyAttempt(first, true)
     applyScore(progress)
+    // Un reto que venció mientras el jugador estaba ausente lo cierra el servidor al entrar: se le avisa.
+    setIsExpiredNoticeLeaving(false)
+    setHasExpiredNotice(expiredAttempt !== null)
     return true
   }, [applyAttempt, applyScore])
 
@@ -213,6 +218,18 @@ export function GamePage() {
       window.clearTimeout(removeTimer)
     }
   }, [discoveredRule])
+
+  useEffect(() => {
+    if (!hasExpiredNotice) return
+
+    const leaveTimer = window.setTimeout(() => setIsExpiredNoticeLeaving(true), 6000)
+    const removeTimer = window.setTimeout(() => setHasExpiredNotice(false), 6300)
+
+    return () => {
+      window.clearTimeout(leaveTimer)
+      window.clearTimeout(removeTimer)
+    }
+  }, [hasExpiredNotice])
 
   const checkAnswer = async () => {
     if (
@@ -477,6 +494,21 @@ export function GamePage() {
           <div>
             <strong>NUEVA REGLA</strong>
             <p>{discoveredRule.description}</p>
+          </div>
+        </aside>
+      )}
+
+      {hasExpiredNotice && (
+        <aside
+          className={`${styles.ruleToast} ${isExpiredNoticeLeaving ? styles.ruleToastLeaving : ''}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <Clock size={19} aria-hidden="true" />
+          <div>
+            <strong>TIEMPO AGOTADO</strong>
+            <p>Tu reto anterior venció mientras no estabas. La secuencia se reinició; conservas tus puntos y tus reglas.</p>
           </div>
         </aside>
       )}

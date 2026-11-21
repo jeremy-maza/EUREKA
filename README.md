@@ -84,6 +84,13 @@ Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `
 (estudiantes; solo compañeros de grupo) y `/docente` (docentes; panel con estadísticas reales de sus grupos). Sin botón de pausa: el
 cronómetro es del servidor y no se puede detener.
 
+## Datos de demostración
+
+`npm run db:seed:demo` (tras `npm run db:seed`) crea cuentas con escenarios listos —jugador nuevo, progreso, secuencia
+fallida, avanzado (racha 8, ×5) y reto expirado— más un docente demo y su grupo. Se generan jugando contra el motor real,
+son deterministas, no tocan usuarios reales y se niegan a ejecutarse en producción. Contraseña: `demo-eureka-2026`.
+Detalle, tabla de escenarios y reinicio: [docs/demo.md](./docs/demo.md).
+
 ## Demo jugable
 
 1. **Crear cuenta** (`/registro`: nombre, correo y contraseña de 8+ caracteres) → entras automáticamente.
@@ -136,6 +143,7 @@ leen desde `apps/api`; Docker Compose, desde la raíz. **Nunca se commitea `.env
 | `MAIL_TRANSPORT`                             | No                | `disabled`                     | `disabled` \| `console` (solo desarrollo, prohibido en producción)   |
 | `AUTH_RETENTION_DAYS`                        | No                | `30`                           | Días que se conserva lo caducado antes de purgarlo                   |
 | `AUTH_CLEANUP_INTERVAL_MINUTES`              | No                | `360`                          | Purga periódica en proceso (0 = desactivada)                         |
+| `DEMO_PASSWORD`                              | No                | `demo-eureka-2026`             | Contraseña de las cuentas demo (solo `db:seed:demo`)                 |
 
 Las variables se validan al arrancar (`class-validator`); si falta o es inválida alguna, la API falla con un mensaje claro.
 Detalle de las de autenticación (límites, correo, proxies): [docs/authentication.md](./docs/authentication.md#10-variables-de-entorno).
@@ -154,6 +162,8 @@ Detalle de las de autenticación (límites, correo, proxies): [docs/authenticati
 | `npm run db:generate`     | `prisma generate`                                                  |
 | `npm run db:migrate`      | `prisma migrate dev` (crea/aplica migraciones en desarrollo)       |
 | `npm run db:seed`         | Siembra mundo/reglas/retos (idempotente; valida resolubilidad)     |
+| `npm run db:seed:demo`    | (Re)crea cuentas y escenarios demo (solo desarrollo)               |
+| `npm run db:demo:reset`   | Elimina SOLO las cuentas demo (`@demo.eureka.local`)               |
 | `npm run admin:create`    | Crea un administrador (script operativo; contraseña por consola)   |
 | `npm run auth:cleanup`    | Purga sesiones/tokens/contadores de autenticación caducados        |
 

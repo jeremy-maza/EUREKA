@@ -39,6 +39,8 @@ export type Session = {
 export type StartSessionResponse = {
   session: Session
   created: boolean
+  /** Reto que venció mientras el jugador estaba ausente y que el servidor cerró como TIMEOUT al entrar. */
+  expiredAttempt: { attemptId: string; outcome: 'TIMEOUT' } | null
 }
 
 export type ChallengeAttempt = {

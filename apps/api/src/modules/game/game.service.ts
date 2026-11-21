@@ -69,10 +69,10 @@ export class GameService {
     const world = await this.worlds.getBySlug(worldSlug);
     return this.tx(async (tx) => {
       const locked = await this.progression.lockOrCreate(tx, userId, world);
-      await this.settleExpired(tx, userId, world, locked.progressId);
+      const expiredAttempt = await this.settleExpired(tx, userId, world, locked.progressId);
 
       const open = await tx.gameSession.findFirst({ where: { userId, worldId: world.id, endedAt: null } });
-      if (open) return { session: toSessionDto(open, worldSlug), created: false };
+      if (open) return { session: toSessionDto(open, worldSlug), created: false, expiredAttempt };
 
       const { state } = await this.progression.read(userId, world, tx);
       if (state.status === 'COMPLETED') {
@@ -87,7 +87,7 @@ export class GameService {
       const session = await tx.gameSession.create({
         data: { userId, worldId: world.id, startedAt: this.clock.now() },
       });
-      return { session: toSessionDto(session, worldSlug), created: true };
+      return { session: toSessionDto(session, worldSlug), created: true, expiredAttempt };
     });
   }
 

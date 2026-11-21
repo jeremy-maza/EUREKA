@@ -100,6 +100,14 @@ export class Player {
     return new Player(ctx, login.body.accessToken, userId);
   }
 
+  /** Inicia sesión con una cuenta que ya existe (p. ej. las cuentas de demostración). */
+  static async login(ctx: TestContext, email: string, password: string): Promise<Player> {
+    const login = await ctx.http().post('/api/auth/login').send({ email, password }).expect(200);
+    const token: string = login.body.accessToken;
+    const me = await ctx.http().get('/api/users/me').set('Authorization', `Bearer ${token}`).expect(200);
+    return new Player(ctx, token, me.body.id);
+  }
+
   get = (path: string) => this.ctx.http().get(`/api${path}`).set('Authorization', `Bearer ${this.token}`);
   post = (path: string) => this.ctx.http().post(`/api${path}`).set('Authorization', `Bearer ${this.token}`);
   patch = (path: string) => this.ctx.http().patch(`/api${path}`).set('Authorization', `Bearer ${this.token}`);

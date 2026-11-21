@@ -61,14 +61,22 @@ export class SessionDto {
   @ApiProperty({ nullable: true, type: Date }) endedAt!: Date | null;
 }
 
-export class StartSessionResponseDto {
-  @ApiProperty({ type: SessionDto }) session!: SessionDto;
-  @ApiProperty({ description: '`false` si se reanudó la sesión abierta existente.' }) created!: boolean;
-}
-
 export class ExpiredAttemptDto {
   @ApiProperty({ format: 'uuid' }) attemptId!: string;
   @ApiProperty({ example: 'TIMEOUT' }) outcome!: 'TIMEOUT';
+}
+
+export class StartSessionResponseDto {
+  @ApiProperty({ type: SessionDto }) session!: SessionDto;
+  @ApiProperty({ description: '`false` si se reanudó la sesión abierta existente.' }) created!: boolean;
+  @ApiProperty({
+    type: ExpiredAttemptDto,
+    nullable: true,
+    description:
+      'Reto que venció mientras el jugador estaba ausente y que esta petición cerró como TIMEOUT ' +
+      '(la secuencia se reinició; puntos y reglas se conservan). `null` si no había ninguno.',
+  })
+  expiredAttempt!: ExpiredAttemptDto | null;
 }
 
 /** Reto en curso. Nunca incluye resultado esperado ni solución. */

@@ -23,6 +23,8 @@
     "db:generate": "npm run db:generate -w apps/api",
     "db:migrate": "npm run db:migrate -w apps/api",
     "db:seed": "npm run db:seed -w apps/api",
+    "db:seed:demo": "npm run db:seed:demo -w apps/api",
+    "db:demo:reset": "npm run db:demo:reset -w apps/api",
     "admin:create": "npm run admin:create -w apps/api",
     "auth:cleanup": "npm run auth:cleanup -w apps/api",
     "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build"
