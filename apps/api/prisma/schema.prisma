@@ -1,0 +1,462 @@
+// Esquema inicial de "Matemática bajo reglas".
+// Decisiones de modelado: ver docs/architecture.md (sección "Modelo de datos").
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum GroupStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Una membresía nunca se borra: al retirar al estudiante pasa a REMOVED (historial).
+enum MembershipStatus {
+  ACTIVE
+  REMOVED
+}
+
+/// Una asignación nunca se borra: al retirar al docente pasa a REVOKED (historial).
+enum AssignmentStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum ProgressStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum AttemptOutcome {
+  PENDING
+  CORRECT
+  INCORRECT
+  TIMEOUT
+}
+
+enum AttemptFailureReason {
+  SYNTAX_ERROR
+  DIVISION_BY_ZERO
+  WRONG_RESULT
+  CLAIMED_RESULT_MISMATCH
+  RULE_VIOLATION
+  TIMEOUT
+}
+
+enum ScoreReason {
+  CORRECT_ANSWER
+  MANUAL_ADJUSTMENT
+}
+
+/// Por qué se revocó una sesión (se conserva como historial; nunca se borra la fila al revocar).
+enum SessionRevocationReason {
+  LOGOUT
+  LOGOUT_ALL
+  SESSION_REVOKED
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+}
+
+/// Ámbito de un contador de limitación de intentos (ver `auth_throttles`).
+enum ThrottleScope {
+  LOGIN_IP
+  LOGIN_EMAIL
+  LOGIN_IP_EMAIL
+  PASSWORD_CHANGE_USER
+  PASSWORD_RESET_REQUEST_IP
+}
+
+// ─────────────────── Usuarios, grupos y docentes ───────────────────
+
+model User {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  email        String   @unique
+  displayName  String
+  passwordHash String
+  role         UserRole @default(STUDENT)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  groupMemberships   GroupMembership[]        @relation("MembershipStudent")
+  teacherAssignments TeacherGroupAssignment[] @relation("AssignmentTeacher")
+  worldProgress      StudentWorldProgress[]
+  gameSessions       GameSession[]
+  attempts           ChallengeAttempt[]
+  worldStatistics    WorldStatistics[]
+  scoreTransactions  ScoreTransaction[]
+
+  authSessions        AuthSession[]
+  passwordResetTokens PasswordResetToken[]
+
+  // Auditoría administrativa: quién creó/asignó/retiró (SetNull al borrar al actor).
+  createdGroups      Group[]                  @relation("GroupCreator")
+  membershipsAdded   GroupMembership[]        @relation("MembershipAddedBy")
+  membershipsRemoved GroupMembership[]        @relation("MembershipRemovedBy")
+  assignmentsMade    TeacherGroupAssignment[] @relation("AssignmentAssignedBy")
+  assignmentsRevoked TeacherGroupAssignment[] @relation("AssignmentRevokedBy")
+
+  @@map("users")
+}
+
+// ───────────── Sesiones, recuperación de contraseña y limitación de intentos ─────────────
+
+/// Una fila por JWT emitido. `id` es el claim `jti` del token; el JWT en sí NUNCA se guarda.
+/// Una sesión es válida si no está revocada y `expiresAt` es futuro. Revocar = fijar `revokedAt` (historial).
+model AuthSession {
+  id               String                   @id @default(uuid()) @db.Uuid
+  userId           String                   @db.Uuid
+  createdAt        DateTime                 @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revocationReason SessionRevocationReason?
+  /// IP del cliente (según `TRUST_PROXY`) y User-Agent truncado: solo para que el usuario reconozca sus sesiones.
+  ipAddress        String?
+  userAgent        String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+/// Token de recuperación de un solo uso. Solo se guarda el SHA-256 del token; el token en claro solo existe
+/// en el correo enviado al usuario. Índice único parcial (migración): un único token vigente por usuario.
+model PasswordResetToken {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @db.Uuid
+  tokenHash     String    @unique
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  /// Se consumió para cambiar la contraseña.
+  consumedAt    DateTime?
+  /// Lo sustituyó un token más nuevo o un cambio de contraseña.
+  invalidatedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+/// Contador de intentos con bloqueo temporal progresivo. `key` es la IP normalizada, el SHA-256 del correo
+/// normalizado (no se guardan correos de cuentas inexistentes), o el id de usuario. Se actualiza bajo bloqueo
+/// de fila (`FOR UPDATE`), por lo que es seguro con peticiones concurrentes. Las filas obsoletas se purgan.
+model AuthThrottle {
+  scope           ThrottleScope
+  key             String
+  attempts        Int           @default(0)
+  windowStartedAt DateTime
+  lockLevel       Int           @default(0)
+  lockedUntil     DateTime?
+  lastAttemptAt   DateTime
+
+  @@id([scope, key])
+  @@index([lastAttemptAt])
+  @@map("auth_throttles")
+}
+
+/// Los grupos no se borran: se desactivan (INACTIVE) y conservan membresías y asignaciones como historial.
+/// Un grupo INACTIVE es de solo lectura para los docentes.
+model Group {
+  id            String      @id @default(uuid(7)) @db.Uuid
+  name          String
+  description   String?
+  status        GroupStatus @default(ACTIVE)
+  deactivatedAt DateTime?
+  /// Administrador que lo creó (null si ese usuario fue eliminado).
+  createdById   String?     @db.Uuid
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  createdBy          User?                    @relation("GroupCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  memberships        GroupMembership[]
+  teacherAssignments TeacherGroupAssignment[]
+
+  @@index([status])
+  @@map("groups")
+}
+
+/// Un estudiante puede pertenecer a varios grupos. Historial: una fila por periodo de pertenencia.
+/// Invariantes en BD (SQL manual de la migración `…_groups_and_teachers`):
+///  - índice único parcial: una única membresía ACTIVE por (userId, groupId);
+///  - CHECK: `status = REMOVED` ⇔ `removedAt` informado;
+///  - trigger: al insertar, `userId` debe tener rol STUDENT.
+model GroupMembership {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  userId      String           @db.Uuid
+  groupId     String           @db.Uuid
+  status      MembershipStatus @default(ACTIVE)
+  joinedAt    DateTime         @default(now())
+  removedAt   DateTime?
+  addedById   String?          @db.Uuid
+  removedById String?          @db.Uuid
+
+  user      User  @relation("MembershipStudent", fields: [userId], references: [id], onDelete: Cascade)
+  group     Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  addedBy   User? @relation("MembershipAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  removedBy User? @relation("MembershipRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+
+  @@index([groupId, status])
+  @@index([userId, status])
+  @@map("group_memberships")
+}
+
+/// Un docente gestiona varios grupos y un grupo puede tener varios docentes.
+/// La autorización del docente se deriva únicamente de las filas ACTIVE de esta tabla.
+/// Invariantes en BD (SQL manual de la migración `…_groups_and_teachers`):
+///  - índice único parcial: una única asignación ACTIVE por (teacherId, groupId);
+///  - CHECK: `status = REVOKED` ⇔ `revokedAt` informado;
+///  - trigger: al insertar, `teacherId` debe tener rol TEACHER.
+model TeacherGroupAssignment {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  teacherId    String           @db.Uuid
+  groupId      String           @db.Uuid
+  status       AssignmentStatus @default(ACTIVE)
+  assignedAt   DateTime         @default(now())
+  revokedAt    DateTime?
+  assignedById String?          @db.Uuid
+  revokedById  String?          @db.Uuid
+
+  teacher    User  @relation("AssignmentTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  group      Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedBy User? @relation("AssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  revokedBy  User? @relation("AssignmentRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([groupId, status])
+  @@index([teacherId, status])
+  @@map("teacher_group_assignments")
+}
+
+// ─────────────── Catálogo: mundos, reglas y retos ───────────────
+
+model World {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  slug        String   @unique
+  name        String
+  description String?
+  /// Orden de presentación (1 = Aritmética … 5 = Caos matemático).
+  position    Int      @unique
+  isEnabled   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rules      Rule[]
+  challenges Challenge[]
+  progress   StudentWorldProgress[]
+  sessions   GameSession[]
+  scores     ScoreTransaction[]
+  attempts   ChallengeAttempt[]
+  statistics WorldStatistics[]
+
+  @@map("worlds")
+}
+
+/// Definición estructurada de una regla (tipo + configuración), separada de los retos.
+model Rule {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  worldId     String   @db.Uuid
+  /// Identificador estable usado por el motor (p. ej. "arithmetic.forbidden-digit-2").
+  key         String
+  /// Tipo de regla (FORBIDDEN_DIGIT, REQUIRED_OPERATION, …). String para permitir nuevos tipos sin migración.
+  type        String
+  description String
+  config      Json
+  createdAt   DateTime @default(now())
+
+  world        World          @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  introducedBy Challenge?
+  unlockedBy   UnlockedRule[]
+
+  @@unique([worldId, key])
+  @@map("rules")
+}
+
+model Challenge {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  worldId           String   @db.Uuid
+  /// Identificador estable del reto en el catálogo, p. ej. "arithmetic-002".
+  key               String
+  /// Posición (1-based) dentro de la secuencia del mundo.
+  position          Int
+  /// Expresión mostrada al jugador, p. ej. "3 * 7".
+  expression        String
+  /// Resultado esperado como fracción canónica ("21", "7/2").
+  expectedResult    String
+  /// Solución de referencia que cumple TODAS las reglas del mundo (garantía de resolubilidad).
+  /// Nunca debe exponerse a estudiantes.
+  referenceSolution String
+  /// Regla que este reto desbloquea (máximo un reto por regla).
+  introducesRuleId  String?  @unique @db.Uuid
+  createdAt         DateTime @default(now())
+
+  world          World              @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  introducesRule Rule?              @relation(fields: [introducesRuleId], references: [id], onDelete: SetNull)
+  attempts       ChallengeAttempt[]
+
+  @@unique([worldId, position])
+  @@unique([worldId, key])
+  @@map("challenges")
+}
+
+// ───────────── Progreso del jugador por mundo ─────────────
+
+/// Racha, puntos y posición independientes por (estudiante, mundo).
+model StudentWorldProgress {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  userId          String         @db.Uuid
+  worldId         String         @db.Uuid
+  /// Posición (1-based) del reto actual en la secuencia.
+  currentPosition Int            @default(1)
+  currentStreak   Int            @default(0)
+  bestStreak      Int            @default(0)
+  /// Caché del total; la fuente auditable es la suma de ScoreTransaction.points.
+  totalPoints     Int            @default(0)
+  status          ProgressStatus @default(IN_PROGRESS)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world         World          @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  unlockedRules UnlockedRule[]
+
+  @@unique([userId, worldId])
+  @@map("student_world_progress")
+}
+
+/// Reglas acumuladas por jugador y mundo. Persisten tras fallos y reinicios de secuencia.
+model UnlockedRule {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  progressId String   @db.Uuid
+  ruleId     String   @db.Uuid
+  unlockedAt DateTime @default(now())
+
+  progress StudentWorldProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+  rule     Rule                 @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+
+  @@unique([progressId, ruleId])
+  @@map("unlocked_rules")
+}
+
+// ───────────── Sesiones, intentos y puntuación ─────────────
+
+model GameSession {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @db.Uuid
+  worldId   String    @db.Uuid
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world    World              @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  attempts ChallengeAttempt[]
+
+  @@index([userId, worldId])
+  @@map("game_sessions")
+}
+
+/// Historial de intentos (incluye fallos y timeouts). Un único intento por reto presentado.
+/// Los tiempos (`startedAt`, `deadlineAt`, `submittedAt`) los fija SIEMPRE el servidor.
+model ChallengeAttempt {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  sessionId        String                @db.Uuid
+  /// Denormalizado desde la sesión para consultas por estudiante/reto.
+  userId           String                @db.Uuid
+  /// Denormalizado desde el reto: permite garantizar un único intento PENDING por (usuario, mundo).
+  worldId          String                @db.Uuid
+  challengeId      String                @db.Uuid
+  outcome          AttemptOutcome        @default(PENDING)
+  failureReason    AttemptFailureReason?
+  submission       String?
+  /// Valor evaluado de la expresión enviada (fracción canónica), si pudo evaluarse.
+  evaluatedValue   String?
+  /// Claves de las reglas activas en el momento del intento (auditoría y estadísticas).
+  activeRuleKeys   String[]
+  activeRulesCount Int
+  timeLimitSeconds Int
+  startedAt        DateTime              @default(now())
+  deadlineAt       DateTime
+  /// Solo si hubo envío a tiempo; un timeout cerrado por el servidor no tiene `submittedAt`.
+  submittedAt      DateTime?
+  /// Milisegundos entre `startedAt` y el envío (reloj del servidor).
+  elapsedMs        Int?
+  streakBefore     Int
+  /// Mensaje de resultado mostrado al jugador (permite devolver idéntica respuesta ante un reenvío).
+  resultMessage    String?
+  /// Clave de la regla que este acierto desbloqueó (null si ninguna o ya estaba desbloqueada).
+  unlockedRuleKey  String?
+  pointsAwarded    Int                   @default(0)
+  /// Violaciones de reglas detectadas (JSON estructurado).
+  violations       Json?
+
+  session          GameSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world            World             @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  challenge        Challenge         @relation(fields: [challengeId], references: [id], onDelete: Restrict)
+  scoreTransaction ScoreTransaction?
+
+  @@index([sessionId])
+  @@index([userId, challengeId])
+  @@index([userId, worldId, startedAt])
+  @@map("challenge_attempts")
+}
+
+/// Libro mayor inmutable (solo inserciones) de puntos. Solo el backend inserta filas.
+/// Puntos enteros y multiplicador en milésimas (1500 = 1.5x): sin aritmética de coma flotante.
+model ScoreTransaction {
+  id              String      @id @default(uuid(7)) @db.Uuid
+  userId          String      @db.Uuid
+  worldId         String      @db.Uuid
+  attemptId       String?     @unique @db.Uuid
+  reason          ScoreReason
+  basePoints      Int
+  multiplierMilli Int
+  points          Int
+  streakAfter     Int
+  createdAt       DateTime    @default(now())
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  world   World             @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  attempt ChallengeAttempt? @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+
+  @@index([userId, worldId])
+  @@map("score_transactions")
+}
+
+/// Agregados por (estudiante, mundo), actualizados en la MISMA transacción que resuelve cada intento.
+/// Son derivables de `ChallengeAttempt`; se materializan para consultas rápidas y futura dificultad adaptativa.
+model WorldStatistics {
+  id                    String   @id @default(uuid(7)) @db.Uuid
+  userId                String   @db.Uuid
+  worldId               String   @db.Uuid
+  attemptsCount         Int      @default(0)
+  correctCount          Int      @default(0)
+  incorrectCount        Int      @default(0)
+  timeoutCount          Int      @default(0)
+  /// Suma de `elapsedMs` de los aciertos (tiempo medio = total / correctCount).
+  totalCorrectElapsedMs Int      @default(0)
+  /// Veces que se incumplió cada regla: { "<ruleKey>": n }.
+  ruleViolationCounts   Json     @default("{}")
+  updatedAt             DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world World @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, worldId])
+  @@map("world_statistics")
+}
