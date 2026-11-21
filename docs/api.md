@@ -48,22 +48,23 @@ Formato de respuesta aceptado: `expresión` o `expresión = resultado` (p. ej. `
 
 ## Endpoints
 
-| Método | Ruta                                    | Códigos             | Notas                                                          |
-| ------ | --------------------------------------- | ------------------- | -------------------------------------------------------------- |
-| POST   | `/auth/register`                        | 201, 400, 409       | Siempre crea un estudiante                                     |
-| POST   | `/auth/login`                           | 200, 400, 401, 429  | `{ accessToken, tokenType, expiresIn }`; crea una sesión       |
-| GET    | `/users/me`                             | 200, 401            |                                                                |
-| GET    | `/worlds`                               | 200                 | Mundos habilitados                                             |
-| GET    | `/progress`                             | 200, 403            | Progreso y **racha por mundo**                                 |
-| GET    | `/worlds/:slug/progress`                | 200, 404            | Posición, racha, puntos, reglas, estadísticas, ids abiertos    |
-| GET    | `/worlds/:slug/rules`                   | 200, 404            | Reglas acumuladas (guardadas)                                  |
-| GET    | `/worlds/:slug/score?limit=`            | 200, 404            | Total, racha, próximo multiplicador, libro de puntos reciente  |
-| GET    | `/worlds/:slug/attempts?limit=&cursor=` | 200, 400, 404       | Historial (fallos y timeouts incluidos), más recientes primero |
-| POST   | `/worlds/:slug/sessions`                | 201 / 200, 404      | Crea o reanuda                                                 |
-| POST   | `/sessions/:id/end`                     | 200, 404, 409       | 409 si hay un reto vigente                                     |
-| POST   | `/sessions/:id/attempts`                | 201 / 200, 404, 409 | Crea o reanuda el intento abierto                              |
-| GET    | `/sessions/:id/attempts/current`        | 200, 404            |                                                                |
-| POST   | `/attempts/:id/answer`                  | 200, 400, 404, 409  | Cuerpo: `{ "expression": "…" }`                                |
+| Método | Ruta                                    | Códigos             | Notas                                                                                                                         |
+| ------ | --------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/register`                        | 201, 400, 409       | Siempre crea un estudiante                                                                                                    |
+| POST   | `/auth/login`                           | 200, 400, 401, 429  | `{ accessToken, tokenType, expiresIn }`; crea una sesión                                                                      |
+| GET    | `/users/me`                             | 200, 401            |                                                                                                                               |
+| GET    | `/worlds`                               | 200                 | Mundos habilitados                                                                                                            |
+| GET    | `/progress`                             | 200, 403            | Progreso y **racha por mundo**                                                                                                |
+| GET    | `/worlds/:slug/progress`                | 200, 404            | Posición, racha, puntos, reglas, estadísticas, ids abiertos                                                                   |
+| GET    | `/worlds/:slug/rules`                   | 200, 404            | Reglas acumuladas (guardadas)                                                                                                 |
+| GET    | `/worlds/:slug/score?limit=`            | 200, 404            | Total, racha, próximo multiplicador, libro de puntos reciente                                                                 |
+| GET    | `/worlds/:slug/leaderboard?limit=`      | 200, 404            | Clasificación por puntos **solo entre compañeros de grupo** (sin grupo: solo el jugador); nombre y puntos, sin ids ni correos |
+| GET    | `/worlds/:slug/attempts?limit=&cursor=` | 200, 400, 404       | Historial (fallos y timeouts incluidos), más recientes primero                                                                |
+| POST   | `/worlds/:slug/sessions`                | 201 / 200, 404      | Crea o reanuda                                                                                                                |
+| POST   | `/sessions/:id/end`                     | 200, 404, 409       | 409 si hay un reto vigente                                                                                                    |
+| POST   | `/sessions/:id/attempts`                | 201 / 200, 404, 409 | Crea o reanuda el intento abierto                                                                                             |
+| GET    | `/sessions/:id/attempts/current`        | 200, 404            |                                                                                                                               |
+| POST   | `/attempts/:id/answer`                  | 200, 400, 404, 409  | Cuerpo: `{ "expression": "…" }`                                                                                               |
 
 Puntos: enteros. `multiplierMilli` en milésimas (1500 = 1.5x) y `multiplier` como texto (`"1.5"`).
 

@@ -9,6 +9,7 @@ import { WorldsModule } from '../worlds';
 import { GameController } from './game.controller';
 import { GameEngine } from './game-engine';
 import { GameService } from './game.service';
+import { LeaderboardService } from './leaderboard.service';
 import { PlayerStateController } from './player-state.controller';
 import { PlayerStateService } from './player-state.service';
 import { ProgressViewBuilder } from './progress-view.builder';
@@ -20,6 +21,7 @@ import { TimerManager } from './timer-manager';
   providers: [
     GameService,
     PlayerStateService,
+    LeaderboardService,
     ProgressViewBuilder,
     {
       provide: TimerManager,

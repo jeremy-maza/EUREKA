@@ -11,12 +11,14 @@ import { AuthenticatedUser, CurrentUser, Roles } from '../../common';
 import { UserRole } from '../../generated/prisma/client';
 import {
   AttemptHistoryPageDto,
+  LeaderboardDto,
   PageQueryDto,
   RecentQueryDto,
   ScoreSummaryDto,
   UnlockedRuleDto,
   WorldProgressDto,
 } from './dto/game.dto';
+import { LeaderboardService } from './leaderboard.service';
 import { PlayerStateService } from './player-state.service';
 
 /** Estado del propio jugador. Un docente no accede aquí; su vista (por grupos asignados) será otro módulo. */
@@ -26,7 +28,10 @@ import { PlayerStateService } from './player-state.service';
 @Roles(UserRole.STUDENT)
 @Controller()
 export class PlayerStateController {
-  constructor(private readonly state: PlayerStateService) {}
+  constructor(
+    private readonly state: PlayerStateService,
+    private readonly leaderboard: LeaderboardService,
+  ) {}
 
   @Get('progress')
   @ApiOperation({
@@ -75,5 +80,21 @@ export class PlayerStateController {
     @Query() query: PageQueryDto,
   ): Promise<AttemptHistoryPageDto> {
     return this.state.getAttemptHistory(user.id, slug, query.limit, query.cursor);
+  }
+
+  @Get('worlds/:slug/leaderboard')
+  @ApiOperation({
+    summary: 'Clasificación del mundo entre los compañeros de grupo del jugador',
+    description:
+      'Solo incluye a quienes comparten un grupo activo con el jugador (sin grupos: solo él). Expone nombre y puntos, nunca ids ni correos.',
+  })
+  @ApiOkResponse({ type: LeaderboardDto })
+  @ApiNotFoundResponse({ description: 'El mundo no existe' })
+  getLeaderboard(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: RecentQueryDto,
+  ): Promise<LeaderboardDto> {
+    return this.leaderboard.getLeaderboard(user.id, slug, query.limit);
   }
 }

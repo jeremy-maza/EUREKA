@@ -234,3 +234,31 @@ export class ScoreSummaryDto {
   @ApiProperty({ type: [ScoreTransactionDto], description: 'Libro de puntos (más recientes primero).' })
   recentTransactions!: ScoreTransactionDto[];
 }
+
+// ───────────── Clasificación ─────────────
+
+export class LeaderboardEntryDto {
+  @ApiProperty({ example: 1, description: 'Posición (empates comparten posición).' }) rank!: number;
+  @ApiProperty({ example: 'Ana' }) displayName!: string;
+  @ApiProperty({ example: 450 }) points!: number;
+  @ApiProperty({ description: '`true` en la fila del jugador autenticado.' }) isCurrentUser!: boolean;
+}
+
+export class LeaderboardDto {
+  @ApiProperty({ example: 'arithmetic' }) worldSlug!: string;
+  @ApiProperty({
+    enum: ['GROUPS', 'SELF'],
+    description:
+      '`GROUPS`: compañeros con los que comparte un grupo activo. `SELF`: no pertenece a ningún grupo activo, solo aparece él.',
+  })
+  scope!: 'GROUPS' | 'SELF';
+  @ApiProperty({ description: 'Personas incluidas en la clasificación (antes de aplicar `limit`).' })
+  participants!: number;
+  @ApiProperty({ type: [LeaderboardEntryDto], description: 'Las primeras posiciones, de mayor a menor.' })
+  entries!: LeaderboardEntryDto[];
+  @ApiProperty({
+    type: LeaderboardEntryDto,
+    description: 'La fila del jugador, aunque quede fuera de `entries`.',
+  })
+  me!: LeaderboardEntryDto;
+}
