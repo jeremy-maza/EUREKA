@@ -1,51 +1,64 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Sparkles } from 'lucide-react'
-import grasshopperIdle from '@/assets/grillo/grillo1.png'
-import { FloatingIsland } from '@/features/game/components/FloatingIsland'
-import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants'
-import { api, ApiError } from '@/shared/api/client'
-import type { Leaderboard } from '@/shared/api/types'
-import { InsightsHeader } from '@/shared/components/InsightsHeader'
-import { ScreenMessage } from '@/shared/components/ScreenMessage'
-import styles from './ClassificationsPage.module.css'
+import { useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
+import grasshopperIdle from '@/assets/grillo/grillo1.png';
+import { FloatingIsland } from '@/features/game/components/FloatingIsland';
+import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants';
+import { api, ApiError } from '@/shared/api/client';
+import type { Leaderboard } from '@/shared/api/types';
+import { InsightsHeader } from '@/shared/components/InsightsHeader';
+import { ScreenMessage } from '@/shared/components/ScreenMessage';
+import styles from './ClassificationsPage.module.css';
 
-const podiumStyles = [styles.secondPlace, styles.firstPlace, styles.thirdPlace]
-const placeNames = ['Segundo lugar', 'Primer lugar', 'Tercer lugar']
+const podiumStyles = [styles.secondPlace, styles.firstPlace, styles.thirdPlace];
+const placeNames = ['Segundo lugar', 'Primer lugar', 'Tercer lugar'];
 
 export function ClassificationsPage() {
-  const [board, setBoard] = useState<Leaderboard | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [board, setBoard] = useState<Leaderboard | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setError(null)
-    try {
-      setBoard(await api.leaderboard(ARITHMETIC_WORLD_SLUG))
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'No se pudo cargar la clasificación.')
-    }
-  }, [])
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    let cancelled = false;
+    api
+      .leaderboard(ARITHMETIC_WORLD_SLUG)
+      .then((data) => {
+        if (!cancelled) setBoard(data);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) {
+          setError(caught instanceof ApiError ? caught.message : 'No se pudo cargar la clasificación.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  const retry = () => {
+    setError(null);
+    setReloadKey((key) => key + 1);
+  };
 
   if (error) {
     return (
       <ScreenMessage title="No pudimos cargar la clasificación">
         <p>{error}</p>
-        <button type="button" onClick={() => void load()}>Reintentar</button>
+        <button type="button" onClick={retry}>
+          Reintentar
+        </button>
       </ScreenMessage>
-    )
+    );
   }
-  if (!board) return <ScreenMessage title="Cargando clasificación…" />
+  if (!board) return <ScreenMessage title="Cargando clasificación…" />;
 
-  const rankedStudents = board.entries
+  const rankedStudents = board.entries;
   // Si el jugador queda fuera del recorte de la lista, se añade al final para que siempre vea su lugar.
   const listedStudents = rankedStudents.some((student) => student.isCurrentUser)
     ? rankedStudents
-    : [...rankedStudents, board.me]
+    : [...rankedStudents, board.me];
   // Orden visual del podio: segundo, primero, tercero (solo los puestos que existen).
-  const podium = [rankedStudents[1], rankedStudents[0], rankedStudents[2]]
+  const podium = [rankedStudents[1], rankedStudents[0], rankedStudents[2]];
 
   return (
     <main className={styles.page}>
@@ -53,12 +66,15 @@ export function ClassificationsPage() {
       <div className={styles.content}>
         <header className={styles.intro}>
           <div>
-            <span className={styles.eyebrow}><Sparkles size={14} /> RUTA DE EXPLORADORES</span>
+            <span className={styles.eyebrow}>
+              <Sparkles size={14} /> RUTA DE EXPLORADORES
+            </span>
             <h1>Clasificaciones</h1>
             <p>Un salto más, un nuevo lugar en el mapa.</p>
           </div>
           <p className={styles.demoNotice}>
-            <span /> {board.scope === 'GROUPS'
+            <span />{' '}
+            {board.scope === 'GROUPS'
               ? 'Compañeros de tus grupos · Mundo 1'
               : 'Aún no perteneces a un grupo: pide a tu docente que te agregue para compararte con tus compañeros'}
           </p>
@@ -75,8 +91,8 @@ export function ClassificationsPage() {
           <div className={styles.sceneSun} aria-hidden="true" />
           <div className={styles.leaderRoute} aria-hidden="true" />
           {podium.map((student, index) => {
-            if (!student) return null
-            const place = index === 1 ? 1 : index === 0 ? 2 : 3
+            if (!student) return null;
+            const place = index === 1 ? 1 : index === 0 ? 2 : 3;
             return (
               <article
                 key={`${place}-${student.displayName}`}
@@ -86,16 +102,23 @@ export function ClassificationsPage() {
                 <div className={styles.leaderSign}>
                   <span>{placeNames[index]}</span>
                   <strong>{student.displayName}</strong>
-                  <b>{student.points.toLocaleString('es')} <small>puntos</small></b>
+                  <b>
+                    {student.points.toLocaleString('es')} <small>puntos</small>
+                  </b>
                 </div>
                 {place === 1 && <img className={styles.grasshopper} src={grasshopperIdle} alt="" />}
                 <FloatingIsland className={styles.leaderIsland} top={48} />
-                <span className={styles.islandNumber} aria-hidden="true">{place}</span>
+                <span className={styles.islandNumber} aria-hidden="true">
+                  {place}
+                </span>
               </article>
-            )
+            );
           })}
           <div className={styles.sceneGround} aria-hidden="true">
-            <span /><span /><span /><span />
+            <span />
+            <span />
+            <span />
+            <span />
           </div>
         </section>
 
@@ -118,12 +141,14 @@ export function ClassificationsPage() {
                   {student.displayName}
                   {student.isCurrentUser && <small>Tu recorrido</small>}
                 </span>
-                <strong className={styles.studentPoints}>{student.points.toLocaleString('es')} <small>pts</small></strong>
+                <strong className={styles.studentPoints}>
+                  {student.points.toLocaleString('es')} <small>pts</small>
+                </strong>
               </li>
             ))}
           </ol>
         </section>
       </div>
     </main>
-  )
+  );
 }

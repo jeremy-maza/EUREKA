@@ -128,7 +128,13 @@
 }
 
 @media (max-width: 600px) {
-  .page { width: min(100% - 32px, 1120px); }
-  .result h1 { font-size: 43px; }
-  .result > p { font-size: 16px; }
+  .page {
+    width: min(100% - 32px, 1120px);
+  }
+  .result h1 {
+    font-size: 43px;
+  }
+  .result > p {
+    font-size: 16px;
+  }
 }

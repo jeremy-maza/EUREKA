@@ -51,7 +51,9 @@
   font-size: 11px;
   font-weight: 800;
   text-align: right;
-  text-shadow: 0 1px 0 white, 0 0 8px rgba(255, 255, 255, 0.9);
+  text-shadow:
+    0 1px 0 white,
+    0 0 8px rgba(255, 255, 255, 0.9);
 }
 
 .challengeMeta strong {
@@ -107,12 +109,20 @@
   background: rgba(255, 253, 247, 0.9);
   box-shadow: 0 3px 10px rgba(67, 109, 115, 0.14);
   transform: translateX(-50%);
-  transition: box-shadow 180ms ease, color 180ms ease;
+  transition:
+    box-shadow 180ms ease,
+    color 180ms ease;
 }
 
-.timer[data-level="green"] { color: #27845b; }
-.timer[data-level="yellow"] { color: #b57918; }
-.timer[data-level="red"] { color: #c94d43; }
+.timer[data-level='green'] {
+  color: #27845b;
+}
+.timer[data-level='yellow'] {
+  color: #b57918;
+}
+.timer[data-level='red'] {
+  color: #c94d43;
+}
 
 .timerReadout {
   display: flex;
@@ -179,7 +189,7 @@
   position: absolute;
   inset: 0;
   background: linear-gradient(180deg, rgba(255, 253, 247, 0.08), transparent 35%, rgba(35, 101, 75, 0.08));
-  content: "";
+  content: '';
   pointer-events: none;
 }
 
@@ -233,7 +243,9 @@
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.1em;
-  text-shadow: 0 1px 0 white, 0 0 8px rgba(255, 255, 255, 0.9);
+  text-shadow:
+    0 1px 0 white,
+    0 0 8px rgba(255, 255, 255, 0.9);
 }
 
 .challengeCard h1 {
@@ -255,7 +267,9 @@
   color: #465f6c;
   font-size: 15px;
   font-weight: 800;
-  text-shadow: 0 1px 0 white, 0 0 10px rgba(255, 255, 255, 0.9);
+  text-shadow:
+    0 1px 0 white,
+    0 0 10px rgba(255, 255, 255, 0.9);
 }
 
 .challengeCard form {
@@ -271,7 +285,9 @@
   font-size: 11px;
   font-weight: 900;
   text-align: center;
-  text-shadow: 0 1px 0 white, 0 0 8px white;
+  text-shadow:
+    0 1px 0 white,
+    0 0 8px white;
 }
 
 .answerRow {
@@ -321,7 +337,9 @@
   color: white;
   background: #ff963e;
   box-shadow: 0 3px 0 #e47d32;
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .answerRow button:hover:not(:disabled) {
@@ -434,7 +452,7 @@
   left: calc(50% + min(280px, 21.5vw) + 100px);
 }
 
-.challengeCard h1[data-long="true"] {
+.challengeCard h1[data-long='true'] {
   font-size: clamp(30px, 4.6vw, 64px);
   line-height: 1.1;
   letter-spacing: -0.04em;
@@ -522,22 +540,40 @@
 }
 
 @keyframes answerShake {
-  25% { transform: translateX(-4px); }
-  75% { transform: translateX(4px); }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
 }
 
 @keyframes ruleToastEnter {
-  from { opacity: 0; transform: translateY(-7px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-7px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes ruleToastExit {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.98);
+  }
 }
 
 @keyframes timerUrgency {
-  50% { box-shadow: 0 3px 14px rgba(201, 77, 67, 0.3); }
+  50% {
+    box-shadow: 0 3px 14px rgba(201, 77, 67, 0.3);
+  }
 }
 
 @media (max-width: 900px) {
@@ -547,11 +583,15 @@
     padding-right: 16px;
     padding-left: 16px;
   }
-  .challengeMeta { width: 150px; }
+  .challengeMeta {
+    width: 150px;
+  }
   .challengeCard {
     width: 55vw;
   }
-  .challengeCard h1 { font-size: clamp(66px, 8vw, 92px); }
+  .challengeCard h1 {
+    font-size: clamp(66px, 8vw, 92px);
+  }
   .timer {
     top: 72px;
     right: 12px;
@@ -561,12 +601,20 @@
 }
 
 @media (max-width: 900px) and (min-width: 601px) {
-  .leftIsland { left: 12%; }
-  .rightIsland { left: 88%; }
+  .leftIsland {
+    left: 12%;
+  }
+  .rightIsland {
+    left: 88%;
+  }
 }
 
 @media (max-width: 600px) {
-  .page { height: 100svh; min-height: 620px; overflow: hidden; }
+  .page {
+    height: 100svh;
+    min-height: 620px;
+    overflow: hidden;
+  }
   .header {
     min-height: 62px;
     grid-template-columns: auto 1fr auto;
@@ -580,26 +628,49 @@
     gap: 5px;
     font-size: 9px;
   }
-  .worldName strong { font-size: 11px; }
-  .worldDot { width: 8px; height: 8px; }
-  .challengeMeta { display: none; }
-  .actions button { width: 36px; height: 36px; }
+  .worldName strong {
+    font-size: 11px;
+  }
+  .worldDot {
+    width: 8px;
+    height: 8px;
+  }
+  .challengeMeta {
+    display: none;
+  }
+  .actions button {
+    width: 36px;
+    height: 36px;
+  }
   .timer {
     width: 96px;
     padding: 6px 8px 7px;
   }
-  .timerReadout span { font-size: 7px; }
-  .timerReadout strong { font-size: 13px; }
-  .timerTrack { height: 4px; margin-top: 6px; }
-  .layout { min-height: 620px; }
+  .timerReadout span {
+    font-size: 7px;
+  }
+  .timerReadout strong {
+    font-size: 13px;
+  }
+  .timerTrack {
+    height: 4px;
+    margin-top: 6px;
+  }
+  .layout {
+    min-height: 620px;
+  }
   .stagePlatform {
     width: 72px;
     height: 36px;
   }
   .stagePlatform.leftIsland,
-  .leftIsland { left: 15%; }
+  .leftIsland {
+    left: 15%;
+  }
   .stagePlatform.rightIsland,
-  .rightIsland { left: 85%; }
+  .rightIsland {
+    left: 85%;
+  }
   .challengeCard {
     top: 50%;
     width: 50vw;
@@ -613,22 +684,50 @@
     margin: 6px 0 12px;
     font-size: 11px;
   }
-  .challengeBadge { font-size: 9px; }
-  .challengeCard form label { font-size: 10px; }
-  .answerRow { grid-template-columns: minmax(0, 1fr) 38px; gap: 5px; }
+  .challengeBadge {
+    font-size: 9px;
+  }
+  .challengeCard form label {
+    font-size: 10px;
+  }
+  .answerRow {
+    grid-template-columns: minmax(0, 1fr) 38px;
+    gap: 5px;
+  }
   .answerRow input {
     height: 39px;
     padding: 0 8px;
     font-size: 14px;
   }
-  .answerRow input::placeholder { font-size: 9px; }
-  .answerRow button { width: 38px; height: 38px; }
-  .answerRow button svg { width: 15px; height: 15px; }
-  .challengeCard h1[data-long="true"] { font-size: clamp(26px, 8vw, 40px); }
-  .rules { gap: 4px; margin-top: 10px; }
-  .rules li { padding: 4px 8px; font-size: 10px; }
-  .scoreboard { gap: 9px; padding: 6px 10px; }
-  .scoreboard strong { font-size: 13px; }
+  .answerRow input::placeholder {
+    font-size: 9px;
+  }
+  .answerRow button {
+    width: 38px;
+    height: 38px;
+  }
+  .answerRow button svg {
+    width: 15px;
+    height: 15px;
+  }
+  .challengeCard h1[data-long='true'] {
+    font-size: clamp(26px, 8vw, 40px);
+  }
+  .rules {
+    gap: 4px;
+    margin-top: 10px;
+  }
+  .rules li {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  .scoreboard {
+    gap: 9px;
+    padding: 6px 10px;
+  }
+  .scoreboard strong {
+    font-size: 13px;
+  }
   .ruleToast {
     top: 72px;
     left: 12px;
@@ -636,23 +735,42 @@
     gap: 7px;
     padding: 8px 10px;
   }
-  .ruleToast > svg { width: 17px; height: 17px; }
-  .ruleToast strong { font-size: 8px; }
-  .ruleToast p { font-size: 11px; }
+  .ruleToast > svg {
+    width: 17px;
+    height: 17px;
+  }
+  .ruleToast strong {
+    font-size: 8px;
+  }
+  .ruleToast p {
+    font-size: 11px;
+  }
 }
 
 @media (max-height: 500px) and (min-width: 601px) {
-  .page { height: auto; min-height: 620px; overflow: auto; }
-  .layout { position: relative; height: 620px; min-height: 620px; }
+  .page {
+    height: auto;
+    min-height: 620px;
+    overflow: auto;
+  }
+  .layout {
+    position: relative;
+    height: 620px;
+    min-height: 620px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .answerError input,
   .ruleToast,
   .ruleToastLeaving,
-  .timerUrgent { animation: none; }
+  .timerUrgent {
+    animation: none;
+  }
   .actions button,
   .answerRow button,
   .timerProgress,
-  .timer { transition: none; }
+  .timer {
+    transition: none;
+  }
 }

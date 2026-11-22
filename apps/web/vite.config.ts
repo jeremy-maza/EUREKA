@@ -5,7 +5,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    // Frontend heredado: puerto 5174 para no chocar con el frontend principal (`frontend/`, 5173).
+    port: 5174,
     // En desarrollo el frontend llama a /api/* y Vite lo reenvía al backend (sin CORS).
     proxy: { '/api': { target: 'http://localhost:3000', changeOrigin: true } },
   },

@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react'
-import { Logo } from './Logo'
-import styles from './ScreenMessage.module.css'
+import type { ReactNode } from 'react';
+import { Logo } from './Logo';
+import styles from './ScreenMessage.module.css';
 
 type ScreenMessageProps = {
-  title: string
-  children?: ReactNode
-}
+  title: string;
+  children?: ReactNode;
+};
 
 /** Pantalla completa con un mensaje breve (carga o error) en el estilo de la aplicación. */
 export function ScreenMessage({ title, children }: ScreenMessageProps) {
@@ -17,5 +17,5 @@ export function ScreenMessage({ title, children }: ScreenMessageProps) {
         {children}
       </div>
     </main>
-  )
+  );
 }

@@ -5,8 +5,12 @@
 Monolito modular (sin microservicios):
 
 ```
-apps/web  (React) ──HTTP /api──▶ apps/api (NestJS) ──Prisma──▶ PostgreSQL
+frontend/  (React, principal) ──HTTP /api──▶ apps/api (NestJS) ──Prisma──▶ PostgreSQL
+apps/web   (React, heredado, conservado)  ──┘
 ```
+
+`frontend/` es el workspace de la demo (puerto 5173, llama a la API con `VITE_API_URL`; CORS). `apps/web` es el primer
+frontend, conservado sin funcionalidad nueva (puerto 5174, proxy `/api`). Ver el [README](../README.md#frontend-principal-frontend).
 
 El backend se organiza por **dominios**, no por capas genéricas. Las clases del motor del juego son TypeScript
 **puro** (sin decoradores de Nest, sin Prisma, sin reloj propio) y Nest solo las cablea en los módulos mediante

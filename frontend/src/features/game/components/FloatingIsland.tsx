@@ -1,9 +1,9 @@
-import styles from './FloatingIsland.module.css'
+import styles from './FloatingIsland.module.css';
 
 type FloatingIslandProps = {
-  className: string
-  top: number
-}
+  className: string;
+  top: number;
+};
 
 export function FloatingIsland({ className, top }: FloatingIslandProps) {
   return (
@@ -92,5 +92,5 @@ export function FloatingIsland({ className, top }: FloatingIslandProps) {
       <circle cx="60" cy="27" r="1.8" fill="#f1a83b" />
       <circle cx="128" cy="27" r="1.6" fill="#f1a83b" />
     </svg>
-  )
+  );
 }

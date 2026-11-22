@@ -225,7 +225,24 @@
 }
 
 @media (max-width: 600px) {
-  .page { width: min(100% - 32px, 1120px); }
-  .metrics { grid-template-columns: repeat(2, 1fr); }
-  .stats { grid-template-columns: repeat(3, 1fr); }
+  .page {
+    width: min(100% - 32px, 1120px);
+  }
+  .header {
+    height: auto;
+    min-height: 54px;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  .account {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px 10px;
+  }
+  .metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }

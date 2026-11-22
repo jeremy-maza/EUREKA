@@ -130,5 +130,7 @@
 }
 
 @media (max-width: 600px) {
-  .page { width: min(100% - 32px, 1120px); }
+  .page {
+    width: min(100% - 32px, 1120px);
+  }
 }

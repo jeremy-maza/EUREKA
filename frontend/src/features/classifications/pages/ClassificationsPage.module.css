@@ -27,7 +27,9 @@
   letter-spacing: 0.13em;
 }
 
-.intro .eyebrow { color: #ba7d25; }
+.intro .eyebrow {
+  color: #ba7d25;
+}
 
 .intro h1 {
   margin: 7px 0 4px;
@@ -80,8 +82,21 @@
   left: -3%;
   height: 42px;
   background: #b6df9e;
-  clip-path: polygon(0 100%, 0 72%, 13% 64%, 21% 73%, 33% 44%, 45% 68%, 58% 50%, 71% 75%, 82% 45%, 92% 63%, 100% 52%, 100% 100%);
-  content: "";
+  clip-path: polygon(
+    0 100%,
+    0 72%,
+    13% 64%,
+    21% 73%,
+    33% 44%,
+    45% 68%,
+    58% 50%,
+    71% 75%,
+    82% 45%,
+    92% 63%,
+    100% 52%,
+    100% 100%
+  );
+  content: '';
 }
 
 .worldScene::after {
@@ -131,13 +146,26 @@
   height: 28px;
   border-radius: 50%;
   background: inherit;
-  content: "";
+  content: '';
 }
 
-.cloud::before { left: 12px; }
-.cloud::after { right: 10px; width: 25px; height: 22px; }
-.cloudOne { top: 90px; left: 10%; }
-.cloudTwo { top: 140px; right: 9%; transform: scale(0.7); }
+.cloud::before {
+  left: 12px;
+}
+.cloud::after {
+  right: 10px;
+  width: 25px;
+  height: 22px;
+}
+.cloudOne {
+  top: 90px;
+  left: 10%;
+}
+.cloudTwo {
+  top: 140px;
+  right: 9%;
+  transform: scale(0.7);
+}
 
 .sceneSun {
   position: absolute;
@@ -171,9 +199,18 @@
   transform: translateX(-50%);
 }
 
-.secondPlace { top: 26%; left: 22%; }
-.firstPlace { top: 10%; left: 50%; }
-.thirdPlace { top: 31%; left: 78%; }
+.secondPlace {
+  top: 26%;
+  left: 22%;
+}
+.firstPlace {
+  top: 10%;
+  left: 50%;
+}
+.thirdPlace {
+  top: 31%;
+  left: 78%;
+}
 
 .leaderSign {
   position: absolute;
@@ -189,7 +226,9 @@
   border-radius: 7px;
   color: #4b5e60;
   background: #fff4d8;
-  box-shadow: 0 3px 0 #966746, 0 7px 12px rgba(70, 111, 116, 0.1);
+  box-shadow:
+    0 3px 0 #966746,
+    0 7px 12px rgba(70, 111, 116, 0.1);
   text-align: center;
   transform: translateX(-50%);
 }
@@ -201,7 +240,7 @@
   width: 6px;
   height: 31px;
   background: #a77a4d;
-  content: "";
+  content: '';
 }
 
 .leaderSign > span {
@@ -266,8 +305,12 @@
   transform: translate(-50%, -50%);
 }
 
-.secondPlace .islandNumber { background: #e3e9e9; }
-.thirdPlace .islandNumber { background: #e9c4a4; }
+.secondPlace .islandNumber {
+  background: #e3e9e9;
+}
+.thirdPlace .islandNumber {
+  background: #e9c4a4;
+}
 
 .grasshopper {
   position: absolute;
@@ -299,7 +342,10 @@
   transform: rotate(-18deg);
 }
 
-.sceneGround span:nth-child(even) { height: 8px; transform: rotate(20deg); }
+.sceneGround span:nth-child(even) {
+  height: 8px;
+  transform: rotate(20deg);
+}
 
 .rankingSection {
   width: min(760px, 100%);
@@ -387,44 +433,94 @@
 }
 
 @media (max-width: 700px) {
-  .content { width: calc(100% - 28px); }
+  .content {
+    width: calc(100% - 28px);
+  }
   .intro {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
     padding: 15px 0 12px;
   }
-  .intro h1 { font-size: 35px; }
-  .intro p { font-size: 12px; }
-  .intro .demoNotice { padding-top: 4px; padding-bottom: 4px; font-size: 9px; }
+  .intro h1 {
+    font-size: 35px;
+  }
+  .intro p {
+    font-size: 12px;
+  }
+  .intro .demoNotice {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    font-size: 9px;
+  }
   .worldScene {
     height: 400px;
     margin: 0 -3px;
   }
-  .sceneLabel { top: 13px; font-size: 8px; }
-  .sceneSun { top: 44px; right: 13%; width: 32px; height: 32px; }
-  .cloudOne { top: 70px; left: 5%; transform: scale(0.72); }
-  .cloudTwo { top: 135px; right: 1%; transform: scale(0.55); }
+  .sceneLabel {
+    top: 13px;
+    font-size: 8px;
+  }
+  .sceneSun {
+    top: 44px;
+    right: 13%;
+    width: 32px;
+    height: 32px;
+  }
+  .cloudOne {
+    top: 70px;
+    left: 5%;
+    transform: scale(0.72);
+  }
+  .cloudTwo {
+    top: 135px;
+    right: 1%;
+    transform: scale(0.55);
+  }
   .leader {
     width: 164px;
     height: 206px;
   }
-  .secondPlace { top: 35%; left: 21%; }
-  .firstPlace { top: 15%; left: 50%; }
-  .thirdPlace { top: 39%; left: 79%; }
+  .secondPlace {
+    top: 35%;
+    left: 21%;
+  }
+  .firstPlace {
+    top: 15%;
+    left: 50%;
+  }
+  .thirdPlace {
+    top: 39%;
+    left: 79%;
+  }
   .leaderSign {
     min-width: 130px;
     gap: 1px;
     padding: 6px 6px 7px;
     border-width: 1px;
     border-radius: 5px;
-    box-shadow: 0 2px 0 #966746, 0 4px 8px rgba(70, 111, 116, 0.1);
+    box-shadow:
+      0 2px 0 #966746,
+      0 4px 8px rgba(70, 111, 116, 0.1);
   }
-  .leaderSign::after { bottom: -23px; width: 4px; height: 23px; left: calc(50% - 2px); }
-  .leaderSign > span { font-size: 7px; }
-  .leaderSign > strong { font-size: 10px; }
-  .leaderSign > b { font-size: 10px; }
-  .leaderSign small { font-size: 8px; }
+  .leaderSign::after {
+    bottom: -23px;
+    width: 4px;
+    height: 23px;
+    left: calc(50% - 2px);
+  }
+  .leaderSign > span {
+    font-size: 7px;
+  }
+  .leaderSign > strong {
+    font-size: 10px;
+  }
+  .leaderSign > b {
+    font-size: 10px;
+  }
+  .leaderSign small {
+    font-size: 8px;
+  }
   .leaderIsland {
     width: 164px;
     height: 66px;
@@ -433,23 +529,64 @@
     width: 184px;
     height: 74px;
   }
-  .islandNumber { width: 21px; height: 21px; font-size: 10px; }
-  .grasshopper { width: 39px; height: 42px; }
-  .sceneGround { right: 2%; left: 2%; bottom: 8px; }
-  .rankingSection { margin-top: 17px; }
-  .listHeading h2 { font-size: 18px; }
-  .rankingRow { min-height: 45px; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; }
-  .studentName { font-size: 11px; }
-  .studentPoints { font-size: 12px; }
+  .islandNumber {
+    width: 21px;
+    height: 21px;
+    font-size: 10px;
+  }
+  .grasshopper {
+    width: 39px;
+    height: 42px;
+  }
+  .sceneGround {
+    right: 2%;
+    left: 2%;
+    bottom: 8px;
+  }
+  .rankingSection {
+    margin-top: 17px;
+  }
+  .listHeading h2 {
+    font-size: 18px;
+  }
+  .rankingRow {
+    min-height: 45px;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .studentName {
+    font-size: 11px;
+  }
+  .studentPoints {
+    font-size: 12px;
+  }
 }
 
 @media (max-width: 370px) {
-  .worldScene { height: 370px; }
-  .leader { width: 148px; }
-  .leaderIsland { width: 148px; height: 60px; }
-  .firstPlace .leaderIsland { width: 166px; height: 67px; }
-  .leaderSign { min-width: 119px; }
-  .leaderSign > strong { font-size: 9px; }
-  .secondPlace { left: 22%; }
-  .thirdPlace { left: 78%; }
+  .worldScene {
+    height: 370px;
+  }
+  .leader {
+    width: 148px;
+  }
+  .leaderIsland {
+    width: 148px;
+    height: 60px;
+  }
+  .firstPlace .leaderIsland {
+    width: 166px;
+    height: 67px;
+  }
+  .leaderSign {
+    min-width: 119px;
+  }
+  .leaderSign > strong {
+    font-size: 9px;
+  }
+  .secondPlace {
+    left: 22%;
+  }
+  .thirdPlace {
+    left: 78%;
+  }
 }

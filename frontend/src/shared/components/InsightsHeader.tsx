@@ -1,18 +1,18 @@
-import { BarChart3, Gamepad2, LogOut, Trophy } from 'lucide-react'
-import { Link } from 'react-router-dom'
-import { useAuth } from '@/features/auth/AuthContext'
-import { Logo } from '@/shared/components/Logo'
-import styles from './InsightsHeader.module.css'
+import { BarChart3, Compass, Gamepad2, LogOut, Trophy } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/features/auth/AuthContext';
+import { Logo } from '@/shared/components/Logo';
+import styles from './InsightsHeader.module.css';
 
 type InsightsHeaderProps = {
-  activePage: 'classifications' | 'teacher'
-}
+  activePage: 'classifications' | 'progress' | 'teacher';
+};
 
 export function InsightsHeader({ activePage }: InsightsHeaderProps) {
-  const { user, logout } = useAuth()
+  const { user, logout } = useAuth();
   // Los estudiantes juegan y ven la clasificación; los docentes solo ven su panel (la API responde 403 al resto).
-  const isTeacher = user?.role === 'TEACHER'
-  const isStudent = user?.role === 'STUDENT'
+  const isTeacher = user?.role === 'TEACHER';
+  const isStudent = user?.role === 'STUDENT';
 
   return (
     <header className={styles.header}>
@@ -23,6 +23,15 @@ export function InsightsHeader({ activePage }: InsightsHeaderProps) {
         {isStudent && (
           <Link to="/" className={styles.navLink}>
             <Gamepad2 size={17} /> <span>Jugar</span>
+          </Link>
+        )}
+        {isStudent && (
+          <Link
+            to="/progreso"
+            className={`${styles.navLink} ${activePage === 'progress' ? styles.active : ''}`}
+            aria-current={activePage === 'progress' ? 'page' : undefined}
+          >
+            <Compass size={17} /> <span>Mi progreso</span>
           </Link>
         )}
         {isStudent && (
@@ -48,5 +57,5 @@ export function InsightsHeader({ activePage }: InsightsHeaderProps) {
         </button>
       </nav>
     </header>
-  )
+  );
 }
