@@ -16,12 +16,12 @@ export function InsightsHeader({ activePage }: InsightsHeaderProps) {
 
   return (
     <header className={styles.header}>
-      <Link to="/" aria-label="EUREKA, ir al juego">
+      <Link to="/" aria-label="EUREKA, ir al inicio">
         <Logo compact />
       </Link>
       <nav className={styles.navigation} aria-label="Navegación principal">
         {isStudent && (
-          <Link to="/" className={styles.navLink}>
+          <Link to="/juego" className={styles.navLink}>
             <Gamepad2 size={17} /> <span>Jugar</span>
           </Link>
         )}

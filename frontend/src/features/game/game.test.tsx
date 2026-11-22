@@ -6,6 +6,7 @@ import {
   arithmeticWorld,
   attempt,
   type Handler,
+  historyItem,
   mockApi,
   ok,
   progress,
@@ -16,7 +17,7 @@ import {
   signIn,
   student,
 } from '@/test/utils';
-import type { Rule } from '@/shared/api/types';
+import type { AnswerResult, Rule } from '@/shared/api/types';
 
 const rule5: Rule = { key: 'r5', type: 'FORBIDDEN_DIGIT', description: 'No puedes usar el dígito 5.' };
 
@@ -41,9 +42,29 @@ function game(extra: Record<string, Handler>) {
 
 const created = (body: unknown) => ({ status: 201, body });
 
+/** Historial en el que el servidor ya cerró por tiempo el reto `a1`. */
+const timeoutHistory = (attemptId = 'a1') => ({
+  items: [
+    historyItem({
+      attemptId,
+      outcome: 'TIMEOUT',
+      failureReason: 'TIMEOUT',
+      submission: null,
+      evaluatedValue: null,
+      pointsAwarded: 0,
+    }),
+  ],
+  nextCursor: null,
+});
+
 const answerBox = () => screen.getByLabelText('Tu respuesta');
 const submit = () => userEvent.click(screen.getByRole('button', { name: 'Enviar respuesta' }));
 const activeRules = () => screen.getByRole('list', { name: 'Reglas activas' });
+/** Descripciones de las reglas activas (sin etiquetas como "Nueva"). */
+const ruleTexts = () =>
+  within(activeRules())
+    .getAllByRole('listitem')
+    .map((item) => item.querySelector('span')?.textContent);
 const scoreboard = () => screen.getByLabelText('Puntuación');
 
 async function play(expression: string) {
@@ -107,8 +128,7 @@ describe('entrada al juego', () => {
     renderApp('/juego');
 
     expect(await screen.findByRole('heading', { name: 'Operación 3 × 7 × 2 ÷ 6' })).toBeInTheDocument();
-    const items = within(activeRules()).getAllByRole('listitem');
-    expect(items.map((item) => item.textContent)).toEqual([rule2.description, rule7x1.description]);
+    expect(ruleTexts()).toEqual([rule2.description, rule7x1.description]);
     // La regla que llega como nueva se anuncia; la futura (dígito 5) no existe en pantalla.
     expect(screen.getByText('NUEVA REGLA')).toBeInTheDocument();
     expect(screen.queryByText(/dígito 5/)).not.toBeInTheDocument();
@@ -195,8 +215,7 @@ describe('acierto y progresión de reglas', () => {
     await finishJump();
 
     expect(await screen.findByLabelText('Progreso 3 de 4')).toBeInTheDocument();
-    const items = within(activeRules()).getAllByRole('listitem');
-    expect(items.map((item) => item.textContent)).toEqual([rule2.description, rule7x1.description]);
+    expect(ruleTexts()).toEqual([rule2.description, rule7x1.description]);
   });
 
   it('al completar el mundo lleva a la pantalla final con el resultado real', async () => {
@@ -305,7 +324,7 @@ describe('respuesta incorrecta y reinicio de la secuencia', () => {
     expect(api.count('POST /sessions/s1/attempts')).toBe(2);
   });
 
-  it('un resultado erróneo o una sintaxis inválida también terminan la secuencia con el mensaje del servidor', async () => {
+  it('un resultado erróneo termina la secuencia sin revelar el resultado esperado', async () => {
     game({
       'POST /sessions/s1/attempts': () => created(attempt()),
       'POST /attempts/a1/answer': () =>
@@ -314,6 +333,7 @@ describe('respuesta incorrecta y reinicio de la secuencia', () => {
             outcome: 'INCORRECT',
             failureReason: 'WRONG_RESULT',
             message: 'Tu expresión vale 22, pero el resultado esperado es 21.',
+            evaluatedValue: '22',
             sequenceRestarted: true,
           }),
         ),
@@ -322,10 +342,13 @@ describe('respuesta incorrecta y reinicio de la secuencia', () => {
 
     await play('22');
 
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: '¡Secuencia terminada!' })).toBeInTheDocument();
     expect(
-      await screen.findByText('Tu expresión vale 22, pero el resultado esperado es 21.'),
+      within(dialog).getByText('Tu expresión vale 22, pero no da el mismo resultado que el desafío.'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '¡Secuencia terminada!' })).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent(/esperado/);
+    expect(dialog).not.toHaveTextContent('21');
   });
 });
 
@@ -337,6 +360,7 @@ describe('tiempo agotado', () => {
         status: 404,
         body: { message: 'No hay un reto en curso.' },
       }),
+      'GET /worlds/arithmetic/attempts?limit=1': () => ok(timeoutHistory()),
     });
     renderApp('/juego');
 
@@ -553,5 +577,581 @@ describe('pantalla final', () => {
 
     expect(await screen.findByText('No pudimos cargar tu resultado')).toBeInTheDocument();
     expect(screen.getByText('Error interno del servidor.')).toBeInTheDocument();
+  });
+});
+
+// ───────────── Fixtures de fallo ─────────────
+
+const unlocked = (rule: Rule) => ({ ...rule, unlockedAt: '2026-11-20T10:00:00.000Z' });
+const violation2 = {
+  ruleKey: 'r2',
+  ruleType: 'FORBIDDEN_DIGIT',
+  description: rule2.description,
+  message: 'No puedes usar el dígito 2, pero aparece en el número 21.',
+};
+
+/** Fallo que el servidor ya liquidó: puntos y reglas conservados, racha a 0. */
+function failed(over: Partial<AnswerResult> = {}): AnswerResult {
+  return answer({
+    outcome: 'INCORRECT',
+    failureReason: 'WRONG_RESULT',
+    message: 'Tu expresión vale 22, pero el resultado esperado es 21.',
+    evaluatedValue: '22',
+    score: { basePoints: 0, multiplierMilli: 0, multiplier: '0', points: 0 },
+    sequenceRestarted: true,
+    progress: progress({ totalPoints: 450, streak: 0, bestStreak: 3, unlockedRules: [unlocked(rule2)] }),
+    ...over,
+  });
+}
+
+const dialogOf = async () => screen.findByRole('dialog');
+
+describe('reiniciar la secuencia', () => {
+  it('usa "Reiniciar secuencia" y explica qué se conserva, sin sugerir que se borra el mundo', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt()),
+      'POST /attempts/a1/answer': () => ok(failed()),
+    });
+    renderApp('/juego');
+
+    await play('22');
+
+    const dialog = await dialogOf();
+    expect(within(dialog).getByRole('button', { name: 'Reiniciar secuencia' })).toBeEnabled();
+    expect(dialog).not.toHaveTextContent(/mundo/i);
+    const info = within(dialog).getByLabelText('Qué pasa al reiniciar la secuencia');
+    expect(info).toHaveTextContent('Empiezas otra vez desde el desafío 1.');
+    expect(info).toHaveTextContent(/Conservas tus puntos:\s*450/);
+    expect(info).toHaveTextContent(/Tu racha actual vuelve a empezar:\s*0/);
+    expect(info).toHaveTextContent('Conservas tus reglas desbloqueadas');
+    expect(
+      within(within(info).getByRole('list', { name: 'Reglas conservadas' })).getAllByRole('listitem'),
+    ).toHaveLength(1);
+    expect(info).toHaveTextContent(rule2.description);
+    expect(screen.queryByRole('button', { name: /Reiniciar mundo/ })).not.toBeInTheDocument();
+  });
+
+  it('sin reglas desbloqueadas no promete conservar ninguna', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt()),
+      'POST /attempts/a1/answer': () => ok(failed({ progress: progress({ totalPoints: 0 }) })),
+    });
+    renderApp('/juego');
+
+    await play('22');
+
+    const info = within(await dialogOf()).getByLabelText('Qué pasa al reiniciar la secuencia');
+    expect(info).not.toHaveTextContent('reglas desbloqueadas');
+    expect(info).toHaveTextContent(/Conservas tus puntos:\s*0/);
+  });
+
+  it('la racha vuelve a 0 al fallar y, tras reiniciar, los puntos y las reglas siguen donde estaban', async () => {
+    const api = game({
+      'POST /sessions/s1/attempts': sequence(
+        created(attempt()),
+        created(
+          attempt({
+            attemptId: 'a2',
+            position: 2,
+            expression: '3 * 7 * 2',
+            rules: [rule2, rule7x1],
+            newRule: rule7x1,
+          }),
+        ),
+        created(attempt({ attemptId: 'a3', position: 1, rules: [rule2], newRule: null })),
+      ),
+      'POST /attempts/a1/answer': () =>
+        ok(
+          answer({
+            unlockedRule: rule2,
+            progress: progress({
+              totalPoints: 450,
+              streak: 3,
+              bestStreak: 3,
+              unlockedRules: [unlocked(rule2)],
+            }),
+          }),
+        ),
+      'POST /attempts/a2/answer': () =>
+        ok(
+          failed({
+            attemptId: 'a2',
+            failureReason: 'RULE_VIOLATION',
+            violations: [violation2],
+            message: violation2.message,
+          }),
+        ),
+      'GET /worlds/arithmetic/progress': sequence(
+        ok(progress()),
+        // Tras reiniciar, el servidor sigue con los puntos y reglas de antes y racha 0.
+        ok(progress({ totalPoints: 450, streak: 0, bestStreak: 3, unlockedRules: [unlocked(rule2)] })),
+      ),
+    });
+    renderApp('/juego');
+
+    await play('7 * 1 * 3');
+    await waitFor(() => expect(scoreboard()).toHaveTextContent(/RACHA\s*3/));
+    await finishJump();
+    expect(await screen.findByLabelText('Progreso 2 de 4')).toBeInTheDocument();
+
+    await play('21 * 2');
+    const dialog = await dialogOf();
+    expect(scoreboard()).toHaveTextContent(/PUNTOS\s*450/);
+    expect(scoreboard()).toHaveTextContent(/RACHA\s*0/);
+    expect(dialog).toHaveTextContent(/Tu racha actual vuelve a empezar:\s*0/);
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Reiniciar secuencia' }));
+
+    expect(await screen.findByLabelText('Progreso 1 de 4')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(scoreboard()).toHaveTextContent(/PUNTOS\s*450/);
+    expect(scoreboard()).toHaveTextContent(/RACHA\s*0/);
+    expect(ruleTexts()).toEqual([rule2.description]);
+    expect(screen.queryByText('NUEVA REGLA')).not.toBeInTheDocument();
+    // Reiniciar solo pide al servidor sesión, reto y progreso: no hay ninguna llamada que borre nada.
+    expect(api.count('POST /worlds/arithmetic/sessions')).toBe(2);
+    expect(api.calls.filter((call) => !call.key.startsWith('GET') && !call.key.startsWith('POST'))).toEqual(
+      [],
+    );
+  });
+
+  it('si no se puede reiniciar, avisa en el diálogo sin perder la explicación del fallo', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt()),
+      'POST /attempts/a1/answer': () => ok(failed()),
+    });
+    renderApp('/juego');
+    await play('22');
+    const dialog = await dialogOf();
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network')));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Reiniciar secuencia' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('No se pudo conectar con el servidor');
+    expect(dialog).toHaveTextContent('Tu expresión vale 22');
+    expect(within(dialog).getByRole('button', { name: 'Reiniciar secuencia' })).toBeEnabled();
+  });
+});
+
+describe('tiempo agotado confirmado por el servidor', () => {
+  const closedByServer = {
+    'POST /sessions/s1/attempts': () => created(attempt({ remainingMs: 200 })),
+    'GET /sessions/s1/attempts/current': () => ({
+      status: 404,
+      body: { message: 'No hay un reto en curso.' },
+    }),
+    'GET /worlds/arithmetic/attempts?limit=1': () => ok(timeoutHistory()),
+  };
+
+  it('refresca puntos, racha y reglas con el progreso del servidor en vez de dejar valores viejos', async () => {
+    const api = game({
+      ...closedByServer,
+      'GET /worlds/arithmetic/progress': sequence(
+        ok(progress({ totalPoints: 300, streak: 3, bestStreak: 3, unlockedRules: [unlocked(rule2)] })),
+        ok(progress({ totalPoints: 300, streak: 0, bestStreak: 3, unlockedRules: [unlocked(rule2)] })),
+      ),
+    });
+    renderApp('/juego');
+
+    const dialog = await screen.findByRole('dialog', {}, { timeout: 4000 });
+    expect(within(dialog).getByRole('heading', { name: '¡Tiempo agotado!' })).toBeInTheDocument();
+    expect(scoreboard()).toHaveTextContent(/PUNTOS\s*300/);
+    expect(scoreboard()).toHaveTextContent(/RACHA\s*0/);
+    expect(dialog).toHaveTextContent(/Conservas tus puntos:\s*300/);
+    expect(dialog).toHaveTextContent(/Tu racha actual vuelve a empezar:\s*0/);
+    expect(dialog).toHaveTextContent(rule2.description);
+    expect(api.count('GET /worlds/arithmetic/progress')).toBe(2);
+    // La liquidación es del servidor: el cliente no envía ninguna respuesta por su cuenta.
+    expect(api.count('POST /attempts/a1/answer')).toBe(0);
+  });
+
+  it('avisa de que la regla nueva del reto no quedó desbloqueada', async () => {
+    game({
+      ...closedByServer,
+      'POST /sessions/s1/attempts': () =>
+        created(attempt({ remainingMs: 200, rules: [rule2], newRule: rule2 })),
+    });
+    renderApp('/juego');
+
+    const dialog = await screen.findByRole('dialog', {}, { timeout: 4000 });
+    expect(dialog).toHaveTextContent('La regla nueva de este desafío no quedó desbloqueada');
+  });
+
+  it('no duplica peticiones mientras el servidor aún responde, aunque el reloj siga corriendo', async () => {
+    const api = game(closedByServer);
+    const base = api.fetchMock.getMockImplementation()!;
+    let currentRequests = 0;
+    let release: () => void = () => {};
+    api.fetchMock.mockImplementation((url, init) => {
+      if (!url.endsWith('/attempts/current')) return base(url, init);
+      currentRequests += 1;
+      return new Promise<Response>((resolve) => {
+        release = () => resolve(base(url, init));
+      });
+    });
+    renderApp('/juego');
+
+    await waitFor(() => expect(currentRequests).toBe(1), { timeout: 4000 });
+    // Varios ciclos del reloj con la petición pendiente: no debe lanzarse otra.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(currentRequests).toBe(1);
+    expect(answerBox()).toBeDisabled();
+
+    release();
+    await dialogOf();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    expect(currentRequests).toBe(1);
+    expect(api.count('GET /worlds/arithmetic/attempts?limit=1')).toBe(1);
+    expect(api.count('GET /worlds/arithmetic/progress')).toBe(2);
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  });
+
+  it('ante un error de red reintenta más tarde y acaba mostrando el resultado del servidor', async () => {
+    const api = game({
+      ...closedByServer,
+      'GET /worlds/arithmetic/attempts?limit=1': sequence(
+        { status: 500, body: { message: 'Error interno del servidor.' } },
+        ok(timeoutHistory()),
+      ),
+    });
+    renderApp('/juego');
+
+    expect(await screen.findByRole('alert', {}, { timeout: 4000 })).toHaveTextContent(
+      'Error interno del servidor.',
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 });
+    expect(within(dialog).getByRole('heading', { name: '¡Tiempo agotado!' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(api.count('GET /worlds/arithmetic/attempts?limit=1')).toBe(2);
+  }, 10_000);
+
+  it('si el servidor devuelve datos inesperados no inventa un resultado', async () => {
+    game({
+      ...closedByServer,
+      'GET /worlds/arithmetic/progress': sequence(ok(progress({ totalPoints: 300 })), ok({})),
+    });
+    renderApp('/juego');
+
+    expect(await screen.findByRole('alert', {}, { timeout: 4000 })).toHaveTextContent(
+      'respuesta inesperada del servidor',
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(scoreboard()).toHaveTextContent(/PUNTOS\s*300/);
+  });
+
+  it('si el reto se cerró de otra forma (p. ej. respondido en otra pestaña) no lo muestra como timeout', async () => {
+    const api = game({
+      ...closedByServer,
+      'POST /sessions/s1/attempts': sequence(
+        created(attempt({ remainingMs: 200 })),
+        created(attempt({ attemptId: 'a2', position: 2, rules: [rule2], newRule: rule2 })),
+      ),
+      'GET /worlds/arithmetic/attempts?limit=1': () =>
+        ok({ items: [historyItem({ attemptId: 'a1', outcome: 'CORRECT' })], nextCursor: null }),
+    });
+    renderApp('/juego');
+
+    expect(await screen.findByLabelText('Progreso 2 de 4', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.count('POST /worlds/arithmetic/sessions')).toBe(2);
+  });
+
+  it('si el servidor trabaja con otro reto distinto del mostrado, se resincroniza', async () => {
+    game({
+      ...closedByServer,
+      'POST /sessions/s1/attempts': sequence(
+        created(attempt({ remainingMs: 200 })),
+        created(attempt({ attemptId: 'a9', position: 3, rules: [rule2, rule7x1], newRule: rule7x1 })),
+      ),
+      'GET /sessions/s1/attempts/current': () => ok(attempt({ attemptId: 'a9', position: 3 })),
+    });
+    renderApp('/juego');
+
+    expect(await screen.findByLabelText('Progreso 3 de 4', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('un envío fuera de plazo usa el mensaje y el progreso de la respuesta del servidor', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt()),
+      'POST /attempts/a1/answer': () =>
+        ok(
+          failed({
+            outcome: 'TIMEOUT',
+            failureReason: 'TIMEOUT',
+            message: 'Se acabó el tiempo.',
+            evaluatedValue: null,
+          }),
+        ),
+    });
+    renderApp('/juego');
+
+    await play('7 * 1 * 3');
+
+    const dialog = await dialogOf();
+    expect(within(dialog).getByRole('heading', { name: '¡Tiempo agotado!' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Se acabó el tiempo.')).toBeInTheDocument();
+    expect(scoreboard()).toHaveTextContent(/PUNTOS\s*450/);
+    expect(scoreboard()).toHaveTextContent(/RACHA\s*0/);
+  });
+});
+
+describe('feedback de un acierto', () => {
+  it('muestra puntos, multiplicador, racha y mensaje tal como los devuelve el servidor', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt()),
+      'POST /attempts/a1/answer': () =>
+        ok(
+          // Valores deliberadamente "no derivables" (170 ≠ 100 × 1.5): la pantalla debe mostrar lo que dice el servidor.
+          answer({
+            message: '¡Bien hecho!',
+            score: { basePoints: 100, multiplierMilli: 1500, multiplier: '1.5', points: 170 },
+            progress: progress({ totalPoints: 270, streak: 2, nextMultiplier: '2' }),
+          }),
+        ),
+    });
+    renderApp('/juego');
+
+    await play('7 * 1 * 3');
+
+    const note = await screen.findByRole('status', { name: 'Resultado del intento' });
+    expect(note).toHaveTextContent('¡Bien hecho!');
+    expect(note).toHaveTextContent(/Puntos ganados\s*\+170/);
+    expect(note).toHaveTextContent(/Multiplicador\s*×1\.5/);
+    expect(note).toHaveTextContent(/Racha\s*2/);
+    expect(scoreboard()).toHaveTextContent(/PUNTOS\s*270/);
+    expect(note).not.toHaveTextContent('Regla desbloqueada');
+  });
+
+  it('anuncia la regla que acaba de guardarse y que seguirá activa', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt({ position: 2, rules: [rule2], newRule: rule2 })),
+      'POST /attempts/a1/answer': () =>
+        ok(
+          answer({
+            unlockedRule: rule2,
+            progress: progress({ totalPoints: 100, streak: 1, unlockedRules: [unlocked(rule2)] }),
+          }),
+        ),
+    });
+    renderApp('/juego');
+
+    await play('7 * 1 * 6');
+
+    const note = await screen.findByRole('status', { name: 'Resultado del intento' });
+    expect(note).toHaveTextContent(`Regla desbloqueada: ${rule2.description}`);
+    expect(note).toHaveTextContent('Seguirá activa en todas tus secuencias.');
+  });
+
+  it('al completar el mundo lo dice, y el aviso desaparece al cargar el siguiente reto', async () => {
+    game({
+      'POST /sessions/s1/attempts': sequence(
+        created(attempt()),
+        created(attempt({ attemptId: 'a2', position: 2 })),
+      ),
+      'POST /attempts/a1/answer': () => ok(answer({ worldCompleted: false })),
+    });
+    renderApp('/juego');
+
+    await play('7 * 1 * 3');
+    expect(await screen.findByRole('status', { name: 'Resultado del intento' })).toBeInTheDocument();
+    await finishJump();
+
+    expect(await screen.findByLabelText('Progreso 2 de 4')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Resultado del intento' })).not.toBeInTheDocument();
+  });
+
+  it('una respuesta sin el formato esperado no se toma por un acierto y el reto sigue abierto', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt()),
+      'POST /attempts/a1/answer': () => ok({ attemptId: 'a1', outcome: 'CORRECT' }),
+    });
+    renderApp('/juego');
+
+    await play('7 * 1 * 3');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('respuesta inesperada del servidor');
+    expect(screen.queryByRole('status', { name: 'Resultado del intento' })).not.toBeInTheDocument();
+    expect(scoreboard()).toHaveTextContent(/PUNTOS\s*0/);
+    expect(answerBox()).toBeEnabled();
+  });
+});
+
+describe('motivos de fallo', () => {
+  const cases: {
+    name: string;
+    over: Partial<AnswerResult>;
+    title: string;
+    shows: (string | RegExp)[];
+    hides?: (string | RegExp)[];
+  }[] = [
+    {
+      name: 'resultado incorrecto (no revela el esperado)',
+      over: {},
+      title: '¡Secuencia terminada!',
+      shows: ['Tu expresión vale 22, pero no da el mismo resultado que el desafío.'],
+      hides: [/esperado/, /vale 21/],
+    },
+    {
+      name: 'regla incumplida',
+      over: {
+        failureReason: 'RULE_VIOLATION',
+        message: violation2.message,
+        evaluatedValue: '21',
+        violations: [violation2],
+      },
+      title: '¡Secuencia terminada!',
+      shows: [
+        'El resultado es correcto, pero tu expresión no cumple todas las reglas activas.',
+        violation2.message,
+      ],
+    },
+    {
+      name: 'expresión inválida',
+      over: {
+        failureReason: 'SYNTAX_ERROR',
+        message: 'Falta cerrar el paréntesis abierto en la posición 1.',
+        evaluatedValue: null,
+      },
+      title: '¡Secuencia terminada!',
+      shows: ['Tu expresión no es válida. Falta cerrar el paréntesis abierto en la posición 1.'],
+    },
+    {
+      name: 'división entre cero',
+      over: {
+        failureReason: 'DIVISION_BY_ZERO',
+        message: 'No se puede dividir entre cero.',
+        evaluatedValue: null,
+      },
+      title: '¡Secuencia terminada!',
+      shows: ['Tu expresión no es válida. No se puede dividir entre cero.'],
+    },
+    {
+      name: 'resultado escrito que no coincide',
+      over: {
+        failureReason: 'CLAIMED_RESULT_MISMATCH',
+        message: 'Escribiste "= 5", pero tu expresión vale 21.',
+      },
+      title: '¡Secuencia terminada!',
+      shows: ['Escribiste "= 5", pero tu expresión vale 21.'],
+    },
+    {
+      name: 'tiempo agotado',
+      over: {
+        outcome: 'TIMEOUT',
+        failureReason: 'TIMEOUT',
+        message: 'Se acabó el tiempo.',
+        evaluatedValue: null,
+      },
+      title: '¡Tiempo agotado!',
+      shows: ['Se acabó el tiempo.'],
+    },
+    {
+      name: 'otro motivo informado por el servidor',
+      over: { failureReason: 'MOTIVO_NUEVO', message: 'Algo no salió bien con tu respuesta.' },
+      title: '¡Secuencia terminada!',
+      shows: ['Algo no salió bien con tu respuesta.'],
+    },
+    {
+      name: 'fallo sin mensaje del servidor',
+      over: { failureReason: null, message: '' },
+      title: '¡Secuencia terminada!',
+      shows: ['No pudimos aceptar tu respuesta.'],
+    },
+  ];
+
+  it.each(cases)('$name', async ({ over, title, shows, hides = [] }) => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt({ rules: [rule2], newRule: rule2 })),
+      'POST /attempts/a1/answer': () => ok(failed(over)),
+    });
+    renderApp('/juego');
+
+    await play('22');
+
+    const dialog = await dialogOf();
+    expect(within(dialog).getByRole('heading', { name: title })).toBeInTheDocument();
+    for (const text of shows) expect(dialog).toHaveTextContent(text);
+    for (const text of hides) expect(dialog).not.toHaveTextContent(text);
+    // Nunca se muestran referencias internas ni reglas aún no descubiertas.
+    expect(dialog).not.toHaveTextContent(/referenceSolution|expectedResult|dígito 5/);
+  });
+});
+
+describe('ciclo de vida de las reglas', () => {
+  it('la regla nueva del reto se marca como tal y se explica que solo se guarda al completarlo', async () => {
+    game({
+      'POST /sessions/s1/attempts': () =>
+        created(attempt({ position: 3, rules: [rule2, rule7x1], newRule: rule7x1 })),
+      'GET /worlds/arithmetic/progress': () => ok(progress({ unlockedRules: [unlocked(rule2)] })),
+    });
+    renderApp('/juego');
+
+    await screen.findByRole('heading', { name: 'Operación 3 × 7' });
+    const [first, second] = within(activeRules()).getAllByRole('listitem');
+    expect(within(second).getByText('Nueva')).toBeInTheDocument();
+    expect(within(first).queryByText('Nueva')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/La regla nueva solo se guarda para siempre si completas este desafío/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Las demás ya las desbloqueaste y siguen activas en todas tus secuencias/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Se guarda para siempre si completas el desafío.')).toBeInTheDocument();
+  });
+
+  it('una regla del reto que ya estaba desbloqueada no se presenta como nueva', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt({ position: 2, rules: [rule2], newRule: rule2 })),
+      'GET /worlds/arithmetic/progress': () => ok(progress({ unlockedRules: [unlocked(rule2)] })),
+    });
+    renderApp('/juego');
+
+    await screen.findByRole('heading', { name: 'Operación 3 × 7' });
+    expect(screen.queryByText('Nueva')).not.toBeInTheDocument();
+    expect(screen.queryByText('NUEVA REGLA')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Estas reglas ya están desbloqueadas y siguen activas en todas tus secuencias.'),
+    ).toBeInTheDocument();
+  });
+
+  it('sin reglas activas no hay explicación que mostrar', async () => {
+    game({ 'POST /sessions/s1/attempts': () => created(attempt()) });
+    renderApp('/juego');
+
+    await screen.findByRole('heading', { name: 'Operación 3 × 7' });
+    expect(screen.queryByText(/siguen activas en todas tus secuencias/)).not.toBeInTheDocument();
+  });
+
+  it('si falla el reto, la regla nueva no desbloqueada se indica; una ya desbloqueada no', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt({ position: 2, rules: [rule2], newRule: rule2 })),
+      'POST /attempts/a1/answer': () =>
+        ok(failed({ progress: progress({ totalPoints: 450, unlockedRules: [] }) })),
+    });
+    renderApp('/juego');
+    await play('22');
+
+    const dialog = await dialogOf();
+    expect(dialog).toHaveTextContent(
+      'La regla nueva de este desafío no quedó desbloqueada: solo se guarda si lo completas.',
+    );
+  });
+
+  it('si falla un reto cuya regla ya estaba desbloqueada, no se dice que se haya perdido', async () => {
+    game({
+      'POST /sessions/s1/attempts': () => created(attempt({ position: 2, rules: [rule2], newRule: rule2 })),
+      'GET /worlds/arithmetic/progress': () => ok(progress({ unlockedRules: [unlocked(rule2)] })),
+      'POST /attempts/a1/answer': () => ok(failed()),
+    });
+    renderApp('/juego');
+    await play('22');
+
+    const dialog = await dialogOf();
+    expect(dialog).not.toHaveTextContent('no quedó desbloqueada');
+    expect(dialog).toHaveTextContent(rule2.description);
   });
 });

@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Clock, RotateCcw, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, Check, Clock, RotateCcw, Send, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants';
 import { FloatingIsland } from '@/features/game/components/FloatingIsland';
 import { Grasshopper } from '@/features/game/components/Grasshopper';
 import { api, ApiError } from '@/shared/api/client';
-import type { AnswerResult, ChallengeAttempt, Rule, Violation } from '@/shared/api/types';
+import {
+  describeFailure,
+  describeSuccess,
+  describeTimeout,
+  type Failure,
+  isAnswerResult,
+  isRuleUnlocked,
+  isWorldProgress,
+  type Success,
+} from '@/features/game/feedback';
+import type { ChallengeAttempt, Rule, WorldProgress } from '@/shared/api/types';
 import { Logo } from '@/shared/components/Logo';
 import { ScreenMessage } from '@/shared/components/ScreenMessage';
 import styles from './GamePage.module.css';
 
 type Feedback = 'idle' | 'success' | 'error';
-
-/** Fin de la secuencia decidido por el servidor: respuesta incorrecta, regla violada o tiempo agotado. */
-type Failure = {
-  title: string;
-  message: string;
-  violations: Violation[];
-};
 
 type Scoreboard = {
   totalPoints: number;
@@ -35,12 +38,6 @@ const formatTime = (seconds: number) => {
 
 /** Solo presentación: el servidor usa `*` y `/`, pero también acepta `×` y `÷`. */
 const formatExpression = (expression: string) => expression.replace(/\*/g, '×').replace(/\//g, '÷');
-
-const describeFailure = (result: AnswerResult): Failure => ({
-  title: result.outcome === 'TIMEOUT' ? '¡Tiempo agotado!' : '¡Secuencia terminada!',
-  message: result.message,
-  violations: result.violations,
-});
 
 const platformRoute = [
   { side: 'left', x: 29, top: 84 },
@@ -74,7 +71,11 @@ export function GamePage() {
   const [deadline, setDeadline] = useState<number | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const [success, setSuccess] = useState<Success | null>(null);
+  const [restartError, setRestartError] = useState<string | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [isSettlingTimeout, setIsSettlingTimeout] = useState(false);
+  const [isNewRule, setIsNewRule] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingNext, setIsLoadingNext] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -91,23 +92,34 @@ export function GamePage() {
   const sessionIdRef = useRef<string | null>(null);
   const runRef = useRef(0);
   const isSubmittingRef = useRef(false);
+  const settlingRef = useRef(false);
   const completedRef = useRef(false);
+  const attemptRef = useRef<ChallengeAttempt | null>(null);
+  /** Reglas que el servidor tiene desbloqueadas según el último progreso recibido. */
+  const unlockedRef = useRef<WorldProgress['unlockedRules']>([]);
 
   const isGameOver = failure !== null;
-  const isBusy = isSubmitting || isLoadingNext || isRestarting;
+  const isBusy = isSubmitting || isLoadingNext || isRestarting || isSettlingTimeout;
 
   /** Carga en pantalla un reto devuelto por el servidor (el tiempo restante lo fija el servidor). */
   const applyAttempt = useCallback((next: ChallengeAttempt, syncPlatform: boolean) => {
+    // El servidor devuelve como `newRule` la regla del reto aunque ya la tengas desbloqueada de antes.
+    const isNew =
+      next.newRule !== null && !isRuleUnlocked(next.newRule, { unlockedRules: unlockedRef.current });
+    attemptRef.current = next;
     setAttempt(next);
+    setIsNewRule(isNew);
     setDeadline(Date.now() + next.remainingMs);
     setRemainingSeconds(Math.ceil(next.remainingMs / 1000));
     setAnswer('');
     setFeedback('idle');
     setFailure(null);
+    setSuccess(null);
+    setRestartError(null);
     setSubmitError(null);
     setHasJumped(false);
     if (syncPlatform) setPlayerPlatform(platformForPosition(next.position));
-    if (next.newRule) {
+    if (next.newRule && isNew) {
       setIsRuleToastLeaving(false);
       setDiscoveredRule(next.newRule);
     } else {
@@ -115,7 +127,8 @@ export function GamePage() {
     }
   }, []);
 
-  const applyScore = useCallback((progress: Scoreboard) => {
+  const applyScore = useCallback((progress: WorldProgress) => {
+    unlockedRef.current = progress.unlockedRules;
     setScoreboard({
       totalPoints: progress.totalPoints,
       streak: progress.streak,
@@ -132,8 +145,8 @@ export function GamePage() {
     if (runRef.current !== runId) return false;
     sessionIdRef.current = session.id;
     completedRef.current = false;
-    applyAttempt(first, true);
     applyScore(progress);
+    applyAttempt(first, true);
     // Un reto que venció mientras el jugador estaba ausente lo cierra el servidor al entrar: se le avisa.
     setIsExpiredNoticeLeaving(false);
     setHasExpiredNotice(expiredAttempt !== null);
@@ -162,28 +175,55 @@ export function GamePage() {
       answerInputRef.current?.focus();
   }, [phase, attempt?.attemptId, isBusy, isGameOver, feedback]);
 
-  /** El reloj local solo es informativo: al llegar a 0 se consulta al servidor, que decide si venció. */
+  /**
+   * El reloj local solo es informativo: al llegar a 0 se consulta al servidor, que decide si venció. Si lo cerró por
+   * tiempo, el resultado y el progreso se leen del servidor (nada se liquida ni se calcula aquí). Solo una
+   * comprobación a la vez: `settlingRef` evita peticiones duplicadas aunque el temporizador se vuelva a armar.
+   */
   const checkDeadlineWithServer = useCallback(async () => {
     const sessionId = sessionIdRef.current;
-    if (!sessionId) return;
+    const expectedAttempt = attemptRef.current;
+    if (!sessionId || !expectedAttempt || settlingRef.current) return;
+    settlingRef.current = true;
+    setIsSettlingTimeout(true);
     try {
       const current = await api.currentAttempt(sessionId);
-      if (current === null) {
-        // El servidor cerró el reto por tiempo y reinició la secuencia.
-        setDeadline(null);
-        setRemainingSeconds(0);
-        setFailure({
-          title: '¡Tiempo agotado!',
-          message: 'El mundo comenzará de nuevo.',
-          violations: [],
-        });
+      if (current !== null) {
+        if (current.attemptId === expectedAttempt.attemptId) {
+          setDeadline(Date.now() + current.remainingMs);
+        } else {
+          // El servidor trabaja con otro reto distinto del que se muestra: se vuelve a sincronizar todo.
+          await startRun();
+        }
         return;
       }
-      setDeadline(Date.now() + current.remainingMs);
-    } catch {
+      // Sin reto abierto: se confirma con el servidor cómo se cerró antes de decir nada al jugador.
+      const [history, progress] = await Promise.all([
+        api.worldAttempts(ARITHMETIC_WORLD_SLUG, 1),
+        api.worldProgress(ARITHMETIC_WORLD_SLUG),
+      ]);
+      if (!isWorldProgress(progress)) {
+        throw new ApiError(0, 'Recibimos una respuesta inesperada del servidor. Inténtalo de nuevo.');
+      }
+      const closed = history?.items?.[0];
+      if (closed?.attemptId === expectedAttempt.attemptId && closed.outcome === 'TIMEOUT') {
+        applyScore(progress);
+        setDeadline(null);
+        setRemainingSeconds(0);
+        setSubmitError(null);
+        setFailure(describeTimeout(progress, expectedAttempt.newRule));
+      } else {
+        // Se cerró de otra forma (p. ej. se respondió desde otra pestaña): no es un timeout, se resincroniza.
+        await startRun();
+      }
+    } catch (error) {
+      setSubmitError(errorMessage(error));
       setDeadline(Date.now() + 2000);
+    } finally {
+      settlingRef.current = false;
+      setIsSettlingTimeout(false);
     }
-  }, []);
+  }, [applyScore, startRun]);
 
   useEffect(() => {
     if (deadline === null || phase !== 'ready' || isGameOver || feedback === 'success') return;
@@ -243,7 +283,8 @@ export function GamePage() {
       jumpTargetIndex !== null ||
       isBusy ||
       isGameOver ||
-      isSubmittingRef.current
+      isSubmittingRef.current ||
+      settlingRef.current
     )
       return;
 
@@ -258,13 +299,17 @@ export function GamePage() {
     setSubmitError(null);
     try {
       const result = await api.answer(attempt.attemptId, answer.trim());
+      if (!isAnswerResult(result)) {
+        throw new ApiError(0, 'Recibimos una respuesta inesperada del servidor. Inténtalo de nuevo.');
+      }
       applyScore(result.progress);
       setDeadline(null);
       if (result.outcome === 'CORRECT') {
-        completedRef.current = result.worldCompleted;
+        completedRef.current = result.worldCompleted === true;
+        setSuccess(describeSuccess(result));
         setFeedback('success');
       } else {
-        setFailure(describeFailure(result));
+        setFailure(describeFailure(result, attempt.newRule));
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -319,10 +364,11 @@ export function GamePage() {
   const restartGame = async () => {
     if (isRestarting) return;
     setIsRestarting(true);
+    setRestartError(null);
     try {
       await startRun();
     } catch (error) {
-      setFailure((current) => current && { ...current, message: errorMessage(error) });
+      setRestartError(errorMessage(error));
     } finally {
       setIsRestarting(false);
     }
@@ -492,13 +538,60 @@ export function GamePage() {
             )}
           </form>
 
-          <ul className={styles.rules} aria-label="Reglas activas">
-            {attempt.rules.map((rule) => (
-              <li key={rule.key} className={rule.key === attempt.newRule?.key ? styles.ruleNew : ''}>
-                {rule.description}
-              </li>
-            ))}
-          </ul>
+          {success && (
+            <div
+              className={styles.successNote}
+              role="status"
+              aria-live="polite"
+              aria-label="Resultado del intento"
+            >
+              <strong>
+                <Check size={15} aria-hidden="true" /> {success.message}
+              </strong>
+              <dl>
+                <div>
+                  <dt>Puntos ganados</dt>
+                  <dd>+{success.points}</dd>
+                </div>
+                <div>
+                  <dt>Multiplicador</dt>
+                  <dd>×{success.multiplier}</dd>
+                </div>
+                <div>
+                  <dt>Racha</dt>
+                  <dd>{success.streak}</dd>
+                </div>
+              </dl>
+              {success.unlockedRule && (
+                <p>
+                  Regla desbloqueada: {success.unlockedRule.description} Seguirá activa en todas tus
+                  secuencias.
+                </p>
+              )}
+              {success.worldCompleted && <p>¡Completaste todos los desafíos!</p>}
+            </div>
+          )}
+
+          <div className={styles.ruleBlock}>
+            <ul className={styles.rules} aria-label="Reglas activas">
+              {attempt.rules.map((rule) => {
+                const isChallengeRule = rule.key === attempt.newRule?.key;
+                return (
+                  <li key={rule.key} className={isChallengeRule && isNewRule ? styles.ruleNew : ''}>
+                    <span>{rule.description}</span>
+                    {isChallengeRule && isNewRule && <b className={styles.ruleTag}>Nueva</b>}
+                  </li>
+                );
+              })}
+            </ul>
+            {attempt.rules.length > 0 && (
+              <p className={styles.ruleLegend}>
+                {isNewRule
+                  ? 'La regla nueva solo se guarda para siempre si completas este desafío. Las demás ya las desbloqueaste y siguen activas en todas tus secuencias.'
+                  : 'Estas reglas ya están desbloqueadas y siguen activas en todas tus secuencias.'}
+              </p>
+            )}
+          </div>
         </article>
       </section>
 
@@ -528,6 +621,7 @@ export function GamePage() {
           <div>
             <strong>NUEVA REGLA</strong>
             <p>{discoveredRule.description}</p>
+            <p className={styles.ruleToastHint}>Se guarda para siempre si completas el desafío.</p>
           </div>
         </aside>
       )}
@@ -562,8 +656,40 @@ export function GamePage() {
                 ))}
               </ul>
             )}
+            {failure.lostNewRule && (
+              <p className={styles.lifecycleNote}>
+                La regla nueva de este desafío no quedó desbloqueada: solo se guarda si lo completas.
+              </p>
+            )}
+            <section className={styles.restartInfo} aria-label="Qué pasa al reiniciar la secuencia">
+              <h3>Al reiniciar la secuencia</h3>
+              <ul>
+                <li>Empiezas otra vez desde el desafío 1.</li>
+                <li>
+                  Conservas tus puntos: <strong>{failure.kept.totalPoints}</strong>.
+                </li>
+                <li>
+                  Tu racha actual vuelve a empezar: <strong>{failure.kept.streak}</strong>.
+                </li>
+                {failure.kept.unlockedRules.length > 0 && (
+                  <li>
+                    Conservas tus reglas desbloqueadas:
+                    <ul aria-label="Reglas conservadas">
+                      {failure.kept.unlockedRules.map((rule) => (
+                        <li key={rule.key}>{rule.description}</li>
+                      ))}
+                    </ul>
+                  </li>
+                )}
+              </ul>
+            </section>
+            {restartError && (
+              <p className={styles.formError} role="alert">
+                {restartError}
+              </p>
+            )}
             <button type="button" onClick={() => void restartGame()} disabled={isRestarting}>
-              <RotateCcw size={16} /> {isRestarting ? 'Reiniciando…' : 'Reiniciar mundo'}
+              <RotateCcw size={16} /> {isRestarting ? 'Reiniciando secuencia…' : 'Reiniciar secuencia'}
             </button>
           </div>
         </div>
