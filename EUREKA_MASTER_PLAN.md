@@ -123,8 +123,8 @@ unlockedRules: UnlockedRule[]           // SIGNIFICADO NUEVO: reglas dominadas (
 - [x] H2 Backend: secuencias persistidas, migración aditiva, desbloqueo, dificultad adaptativa, DTOs, seed y demo
 - [x] H3 Frontend: mapa de 5 mundos con desbloqueo, juego por mundo, progreso/clasificación por mundo
 - [x] H4 QA: pruebas funcionales de los 5 mundos y regresión (ver §10)
-- [ ] H5 Revisión independiente y corrección de hallazgos críticos/altos
-- [x] H6 Documentación (README, architecture, api, demo) — se revisa tras H5
+- [x] H5 Revisión independiente y corrección de hallazgos críticos/altos (ver §11)
+- [x] H6 Documentación (README, architecture, api, demo, este plan)
 
 ## 8. Registro de estado
 
@@ -135,6 +135,11 @@ unlockedRules: UnlockedRule[]           // SIGNIFICADO NUEVO: reglas dominadas (
   `WorldUnlockService` → `WorldsRepository`), corregido pasando el cliente transaccional. `npm run verify` en verde salvo
   el formato de `pnpm-lock.yaml` (archivo sin seguimiento previo del usuario, no tocado). Prueba de humo con la API
   compilada + seeds reales. Commits `49830c6` (API) y `a296092` (web).
+
+- 2026-11-23 — Revisión independiente (backend y frontend, en paralelo, solo lectura). Backend: 30 000 secuencias
+  fuzzeadas sin problemas; 0 críticos/altos; medios y bajos corregidos en `bfbf407` y `0ac97ec`. Frontend: sin deriva de
+  contrato; 2 altos y los medios corregidos en `65d4551`. Verificación final en vivo (API compilada + Vite + navegador):
+  aviso de reto vencido desde el mapa, tarjeta de inicio sin cronómetro, aviso de `x` en una ecuación real.
 
 ## 9. Catálogo final de reglas
 
@@ -188,9 +193,35 @@ Fuente de verdad: `apps/api/src/modules/worlds/catalog/*.world.ts`.
 | `npm run typecheck` (API + web)                                                   | OK                                                                                                                                 |
 | `npx eslint .`                                                                    | OK                                                                                                                                 |
 | API unitarias (`test:unit`)                                                       | 38 suites, 685 pruebas OK                                                                                                          |
-| API integración (`test:integration`, PGlite)                                      | 18 suites, 240 pruebas OK (incluye 5 mundos con planificador real, demo y migración sobre datos antiguos)                          |
-| Web (`vitest`)                                                                    | 8 archivos, 132 pruebas OK                                                                                                         |
+| API integración (`test:integration`, PGlite)                                      | 18 suites, 247 pruebas OK (5 mundos con planificador real, demo, migración sobre datos antiguos y robustez)                        |
+| Web (`vitest`)                                                                    | 8 archivos, 146 pruebas OK                                                                                                         |
 | `npm run build` (API + web)                                                       | OK                                                                                                                                 |
 | `prisma migrate diff` migraciones ↔ esquema                                       | vacío (sin deriva)                                                                                                                 |
 | Humo: API compilada + `db:seed` + `db:seed:demo` reales sobre PostgreSQL (PGlite) | 5 mundos servidos, desbloqueos correctos, ecuación y potencias en el Mundo 5, fallo con reglas descartadas, 403 en mundo bloqueado |
 | `prettier --check .`                                                              | OK salvo `pnpm-lock.yaml` (archivo sin seguimiento previo, ajeno a este trabajo)                                                   |
+
+## 11. Revisión independiente: hallazgos y resolución
+
+| Hallazgo                                                                                                                                                                                                         | Severidad  | Resolución                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| Aviso «reto vencido» nunca visible al entrar desde el mapa (la lectura de `/progress` lo consumía)                                                                                                               | Alta       | API: `expiredAttempt` se informa hasta el siguiente reto (`0ac97ec`); web lo muestra al entrar     |
+| En ecuaciones, escribir `x = …` (invitado por el prefijo) terminaba la secuencia                                                                                                                                 | Alta       | Web: aviso previo al envío solo para `x` en ecuaciones; el servidor sigue siendo la autoridad      |
+| Abrir un mundo arrancaba el cronómetro (curiosear generaba TIMEOUTs)                                                                                                                                             | Media      | Web: tarjeta «Empezar desafío»; el reto solo empieza al pulsarla (o se reanuda si hay uno abierto) |
+| Cambio de catálogo (regla renombrada) o intento antiguo abierto ⇒ errores 500 permanentes                                                                                                                        | Media      | API: el servidor retira el estado no jugable sin culpa del jugador (`bfbf407`)                     |
+| `MAX_NUMBER`: texto engañoso con números negativos                                                                                                                                                               | Media      | Texto de la regla y del mensaje alineados con la semántica (número escrito; el signo no cuenta)    |
+| `startAttempt` no volvía a comprobar desbloqueo ni mundo habilitado                                                                                                                                              | Baja–media | API: comprobación en cada reto                                                                     |
+| Mensaje `WRONG_RESULT` revelaba el valor esperado                                                                                                                                                                | Baja       | API: mensaje sin el valor                                                                          |
+| `-0` contaba como número negativo                                                                                                                                                                                | Baja       | `REQUIRED_NEGATIVE` exige un valor negativo                                                        |
+| `db:seed` reactivaba mundos deshabilitados; ratio del panel docente > 100 %                                                                                                                                      | Baja       | Corregidos                                                                                         |
+| Diálogo de fin sin foco atrapado ni salida; 320 px; fracciones como `÷`; `x` poco visible; pestañas cortadas; candado que apunta a otro mundo bloqueado; contraste y textos < 11 px; etiquetas docentes ambiguas | Media/Baja | Web: corregidos (`65d4551`)                                                                        |
+| Migración no apta para despliegue en caliente; el TIMEOUT de la transición conserva la racha; `n / 1` cumple «usa una división»; la regla nueva no siempre muerde sola                                           | Baja       | Decisiones documentadas en `docs/architecture.md` (Supuestos)                                      |
+
+## 12. Limitaciones conocidas
+
+- La justicia de las reglas (que un humano las resuelva a tiempo) se juzgó con muestras y topes de resultado, no con
+  jugadores reales: conviene una prueba con estudiantes, sobre todo en Caos con dificultad intensa.
+- Las pruebas de integración usan PGlite con un pool de 1 conexión; la serialización concurrente real (`FOR UPDATE`) se
+  prueba de forma lógica. Antes de producción: prueba de humo contra un PostgreSQL real con varias conexiones.
+- Sin ilustraciones de fondo por mundo (la identidad se mantiene con el acento de color de cada mundo).
+- Progreso y clasificación sin mundo en la URL abren el mundo con más actividad (la API no expone «último jugado»).
+- `pnpm-lock.yaml` (sin seguimiento y previo a este trabajo) no pasa `prettier --check`; no se tocó.
