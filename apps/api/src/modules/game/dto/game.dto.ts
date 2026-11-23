@@ -102,8 +102,9 @@ export class StartSessionResponseDto {
     type: ExpiredAttemptDto,
     nullable: true,
     description:
-      'Reto que venció mientras el jugador estaba ausente y que esta petición cerró como TIMEOUT ' +
-      '(la secuencia terminó y sus reglas se descartaron; los puntos se conservan). `null` si no había ninguno.',
+      'Último reto del jugador en el mundo si venció mientras estaba ausente (cerrado como TIMEOUT por el servidor, ' +
+      'en esta petición o en una lectura anterior); se informa hasta que empiece otro reto. La secuencia terminó y sus ' +
+      'reglas se descartaron; los puntos se conservan. `null` si no aplica.',
   })
   expiredAttempt!: ExpiredAttemptDto | null;
 }

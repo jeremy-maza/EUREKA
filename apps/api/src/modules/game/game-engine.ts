@@ -5,6 +5,9 @@ import { WorldDefinition } from '../worlds';
 import { ActiveChallenge, AttemptResult } from './game.types';
 import { TimerManager } from './timer-manager';
 
+/** Mensaje de un reto cerrado por tiempo (también identifica los cerrados por el servidor sin envío). */
+export const TIMEOUT_MESSAGE = 'Se acabó el tiempo.';
+
 export class GameStateError extends Error {
   constructor(message: string) {
     super(message);
@@ -75,7 +78,7 @@ export class GameEngine {
       submittedAt,
     );
     if (!timing.withinTime) {
-      return this.fail(input.state, 'TIMEOUT', 'Se acabó el tiempo.', null, timing.elapsedMs);
+      return this.fail(input.state, 'TIMEOUT', TIMEOUT_MESSAGE, null, timing.elapsedMs);
     }
 
     const evaluation = challengeEngine.evaluateSubmission({
@@ -125,7 +128,7 @@ export class GameEngine {
       throw new GameStateError('El plazo del reto todavía no ha vencido.');
     }
     const elapsedMs = now.getTime() - activeChallenge.startedAt.getTime();
-    return this.fail(state, 'TIMEOUT', 'Se acabó el tiempo.', null, elapsedMs);
+    return this.fail(state, 'TIMEOUT', TIMEOUT_MESSAGE, null, elapsedMs);
   }
 
   private fail(

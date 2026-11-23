@@ -17,7 +17,7 @@ import {
   ViolationDto,
   WorldRefDto,
 } from './dto/game.dto';
-import { GameEngine, GameStateError } from './game-engine';
+import { GameEngine, GameStateError, TIMEOUT_MESSAGE } from './game-engine';
 import { ActiveChallenge, AttemptResult } from './game.types';
 import { parseViolations, toRuleDto, toSessionDto } from './game.mappers';
 import { ProgressViewBuilder } from './progress-view.builder';
@@ -91,7 +91,9 @@ export class GameService {
     return this.tx(async (tx) => {
       const locked = await this.progression.lockOrCreate(tx, userId, world);
       await this.unlocks.assertUnlocked(userId, world, tx);
-      const expiredAttempt = await this.settleExpired(tx, userId, world, locked.progressId);
+      const expiredAttempt =
+        (await this.settleExpired(tx, userId, world, locked.progressId)) ??
+        (await this.lastUnnoticedExpiry(tx, userId, world));
 
       const open = await tx.gameSession.findFirst({ where: { userId, worldId: world.id, endedAt: null } });
       if (open) return { session: toSessionDto(open, worldSlug), created: false, expiredAttempt };
@@ -111,6 +113,28 @@ export class GameService {
       });
       return { session: toSessionDto(session, worldSlug), created: true, expiredAttempt };
     });
+  }
+
+  /**
+   * El último intento del jugador en el mundo, si lo cerró el servidor por tiempo sin respuesta (el jugador se fue).
+   * Lo cierre la petición que lo cierre (p. ej. una lectura de progreso desde el mapa), el aviso sigue disponible al
+   * entrar al mundo hasta que el jugador empieza otro reto.
+   */
+  private async lastUnnoticedExpiry(
+    tx: DbClient,
+    userId: string,
+    world: LoadedWorld,
+  ): Promise<ExpiredAttemptDto | null> {
+    const latest = await tx.challengeAttempt.findFirst({
+      where: { userId, worldId: world.id },
+      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, outcome: true, submission: true, resultMessage: true },
+    });
+    return latest?.outcome === 'TIMEOUT' &&
+      latest.submission === null &&
+      latest.resultMessage === TIMEOUT_MESSAGE
+      ? { attemptId: latest.id, outcome: 'TIMEOUT' }
+      : null;
   }
 
   /** Cierra la sesión (idempotente). No se permite con un reto vigente: el plazo corre igualmente. */

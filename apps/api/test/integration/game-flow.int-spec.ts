@@ -810,5 +810,26 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       expect(answered.message).toBe('Tu expresión vale 22, pero no es el resultado de la operación.');
       expect(answered.message).not.toContain('21');
     });
+
+    it('el aviso de reto vencido llega al entrar al mundo aunque lo haya cerrado antes una lectura (p. ej. el mapa)', async () => {
+      const sessionId = await openSession();
+      const started = await ana.startAttempt(sessionId).expect(201);
+      ctx.clock.advanceSeconds(120);
+      await ana.get('/progress').expect(200); // el mapa lee el progreso: cierra el reto por tiempo
+
+      const entered = await ana.startSession().expect(200);
+      expect(entered.body.expiredAttempt).toEqual({ attemptId: started.body.attemptId, outcome: 'TIMEOUT' });
+      // Sigue avisando hasta que el jugador empieza otro reto…
+      expect((await ana.startSession().expect(200)).body.expiredAttempt).not.toBeNull();
+      await ana.startAttempt(sessionId).expect(201);
+      // …y después ya no.
+      expect((await ana.startSession().expect(200)).body.expiredAttempt).toBeNull();
+    });
+
+    it('un envío tardío (el jugador sí respondió) no genera el aviso de ausencia', async () => {
+      const sessionId = await openSession();
+      await ana.play(sessionId, '21', 61);
+      expect((await ana.startSession().expect(200)).body.expiredAttempt).toBeNull();
+    });
   });
 });
