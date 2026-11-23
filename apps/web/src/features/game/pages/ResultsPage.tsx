@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Home, RotateCcw, Sparkles } from 'lucide-react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants';
-import { api, ApiError } from '@/shared/api/client';
-import type { WorldProgress } from '@/shared/api/types';
-import { Logo } from '@/shared/components/Logo';
-import { ScreenMessage } from '@/shared/components/ScreenMessage';
+import { ARITHMETIC_WORLD_SLUG } from '@/lib/worlds';
+import { api, ApiError } from '@/services/api/client';
+import type { WorldProgress } from '@/services/api/types';
+import { Logo } from '@/components/ui/Logo';
+import { ScreenMessage } from '@/components/ui/ScreenMessage';
 import styles from './ResultsPage.module.css';
 
 export function ResultsPage() {

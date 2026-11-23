@@ -1,8 +1,8 @@
 import { render } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { vi } from 'vitest';
-import { AppRoutes } from '@/App';
-import { API_URL } from '@/shared/api/client';
+import { AppRoutes } from '@/app/router/AppRoutes';
+import { API_URL } from '@/services/api/client';
 import type {
   AnswerResult,
   AttemptHistoryItem,
@@ -12,7 +12,7 @@ import type {
   UserProfile,
   WorldProgress,
   WorldSummary,
-} from '@/shared/api/types';
+} from '@/services/api/types';
 
 // ───────────── Fixtures (la forma de cada respuesta de la API) ─────────────
 

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, API_URL, setUnauthorizedHandler, tokenStore } from './client';
+import { tokenStore } from '@/services/storage/token-store';
+import { api, ApiError, API_URL, setUnauthorizedHandler } from './client';
 
 function reply(status: number, body?: unknown, headers: Record<string, string> = {}) {
   const text = body === undefined ? null : typeof body === 'string' ? body : JSON.stringify(body);

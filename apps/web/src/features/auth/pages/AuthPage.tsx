@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { LogIn, UserPlus } from 'lucide-react';
-import { ApiError } from '@/shared/api/client';
-import { Logo } from '@/shared/components/Logo';
+import { ApiError } from '@/services/api/client';
+import { Logo } from '@/components/ui/Logo';
 import { useAuth } from '../AuthContext';
 import styles from './AuthPage.module.css';
 

@@ -1,4 +1,4 @@
-import type { AnswerResult, Rule, Violation, WorldProgress } from '@/shared/api/types';
+import type { AnswerResult, Rule, Violation, WorldProgress } from '@/services/api/types';
 
 /**
  * Presentación de los resultados que decide el servidor. Aquí no se calcula nada del juego (puntos, multiplicador,

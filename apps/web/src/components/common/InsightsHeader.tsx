@@ -1,11 +1,11 @@
 import { BarChart3, Compass, Gamepad2, LogOut, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthContext';
-import { Logo } from '@/shared/components/Logo';
+import { Logo } from '@/components/ui/Logo';
 import styles from './InsightsHeader.module.css';
 
 type InsightsHeaderProps = {
-  activePage: 'classifications' | 'progress' | 'teacher';
+  activePage: 'leaderboard' | 'progress' | 'teacher';
 };
 
 export function InsightsHeader({ activePage }: InsightsHeaderProps) {
@@ -37,8 +37,8 @@ export function InsightsHeader({ activePage }: InsightsHeaderProps) {
         {isStudent && (
           <Link
             to="/clasificaciones"
-            className={`${styles.navLink} ${activePage === 'classifications' ? styles.active : ''}`}
-            aria-current={activePage === 'classifications' ? 'page' : undefined}
+            className={`${styles.navLink} ${activePage === 'leaderboard' ? styles.active : ''}`}
+            aria-current={activePage === 'leaderboard' ? 'page' : undefined}
           >
             <Trophy size={17} /> <span>Clasificaciones</span>
           </Link>

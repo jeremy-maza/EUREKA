@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Compass, Flame, LogOut, Play, Sparkles, Trophy } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
-import { api, ApiError } from '@/shared/api/client';
-import type { WorldProgress, WorldSummary } from '@/shared/api/types';
-import { Logo } from '@/shared/components/Logo';
-import { ScreenMessage } from '@/shared/components/ScreenMessage';
-import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants';
+import { api, ApiError } from '@/services/api/client';
+import type { WorldProgress, WorldSummary } from '@/services/api/types';
+import { Logo } from '@/components/ui/Logo';
+import { ScreenMessage } from '@/components/ui/ScreenMessage';
+import { ARITHMETIC_WORLD_SLUG } from '@/lib/worlds';
 import styles from './HomePage.module.css';
 
 type HomeData = {

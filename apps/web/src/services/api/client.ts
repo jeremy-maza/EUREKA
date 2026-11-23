@@ -15,6 +15,7 @@ import type {
   WorldProgress,
   WorldSummary,
 } from './types';
+import { tokenStore } from '@/services/storage/token-store';
 
 /** URL base de la API. Configurable con `VITE_API_URL` (ver `.env.example`). */
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api').replace(/\/+$/, '');
@@ -31,26 +32,6 @@ export class ApiError extends Error {
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }
-
-const TOKEN_KEY = 'eureka.token';
-
-export const tokenStore = {
-  get(): string | null {
-    try {
-      return localStorage.getItem(TOKEN_KEY);
-    } catch {
-      return null;
-    }
-  },
-  set(token: string | null): void {
-    try {
-      if (token) localStorage.setItem(TOKEN_KEY, token);
-      else localStorage.removeItem(TOKEN_KEY);
-    } catch {
-      /* almacenamiento no disponible: la sesión solo dura mientras la pestaña esté abierta */
-    }
-  },
-};
 
 /** Se invoca cuando el servidor rechaza el token (401) para que la app cierre la sesión local. */
 let onUnauthorized: (() => void) | null = null;

@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useAuth } from './AuthContext';
-import { ScreenMessage } from '@/shared/components/ScreenMessage';
+import { useAuth } from '../AuthContext';
+import { ScreenMessage } from '@/components/ui/ScreenMessage';
 
 /** Protege las rutas privadas: sin sesión redirige al acceso; mientras se valida el token muestra una carga. */
 export function RequireAuth() {

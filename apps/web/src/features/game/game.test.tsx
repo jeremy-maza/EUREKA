@@ -17,7 +17,7 @@ import {
   signIn,
   student,
 } from '@/test/utils';
-import type { AnswerResult, Rule } from '@/shared/api/types';
+import type { AnswerResult, Rule } from '@/services/api/types';
 
 const rule5: Rule = { key: 'r5', type: 'FORBIDDEN_DIGIT', description: 'No puedes usar el dígito 5.' };
 

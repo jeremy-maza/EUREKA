@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, setUnauthorizedHandler, tokenStore } from '@/shared/api/client';
-import type { UserProfile } from '@/shared/api/types';
+import { api, setUnauthorizedHandler } from '@/services/api/client';
+import { tokenStore } from '@/services/storage/token-store';
+import type { UserProfile } from '@/services/api/types';
 
 type AuthState = {
   /** `loading` mientras se valida un token guardado; `anonymous` sin sesión. */

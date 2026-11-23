@@ -10,8 +10,8 @@ import {
   Sprout,
 } from 'lucide-react';
 import grasshopperIdle from '@/assets/grillo/grillo1.png';
-import { FloatingIsland } from '@/features/game/components/FloatingIsland';
-import { api, ApiError } from '@/shared/api/client';
+import { FloatingIsland } from '@/components/ui/FloatingIsland';
+import { api, ApiError } from '@/services/api/client';
 import type {
   FailureReason,
   GroupStatistics,
@@ -19,9 +19,9 @@ import type {
   StudentOverview,
   StudentStatistics,
   TeacherDashboard,
-} from '@/shared/api/types';
-import { InsightsHeader } from '@/shared/components/InsightsHeader';
-import { ScreenMessage } from '@/shared/components/ScreenMessage';
+} from '@/services/api/types';
+import { InsightsHeader } from '@/components/common/InsightsHeader';
+import { ScreenMessage } from '@/components/ui/ScreenMessage';
 import styles from './TeacherDashboardPage.module.css';
 
 type StudentStatus = 'support' | 'watch' | 'good' | 'none';

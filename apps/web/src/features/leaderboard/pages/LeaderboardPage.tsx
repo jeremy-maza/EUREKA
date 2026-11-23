@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import grasshopperIdle from '@/assets/grillo/grillo1.png';
-import { FloatingIsland } from '@/features/game/components/FloatingIsland';
-import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants';
-import { api, ApiError } from '@/shared/api/client';
-import type { Leaderboard } from '@/shared/api/types';
-import { InsightsHeader } from '@/shared/components/InsightsHeader';
-import { ScreenMessage } from '@/shared/components/ScreenMessage';
-import styles from './ClassificationsPage.module.css';
+import { FloatingIsland } from '@/components/ui/FloatingIsland';
+import { ARITHMETIC_WORLD_SLUG } from '@/lib/worlds';
+import { api, ApiError } from '@/services/api/client';
+import type { Leaderboard } from '@/services/api/types';
+import { InsightsHeader } from '@/components/common/InsightsHeader';
+import { ScreenMessage } from '@/components/ui/ScreenMessage';
+import styles from './LeaderboardPage.module.css';
 
 const podiumStyles = [styles.secondPlace, styles.firstPlace, styles.thirdPlace];
 const placeNames = ['Segundo lugar', 'Primer lugar', 'Tercer lugar'];
 
-export function ClassificationsPage() {
+export function LeaderboardPage() {
   const [board, setBoard] = useState<Leaderboard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +62,7 @@ export function ClassificationsPage() {
 
   return (
     <main className={styles.page}>
-      <InsightsHeader activePage="classifications" />
+      <InsightsHeader activePage="leaderboard" />
       <div className={styles.content}>
         <header className={styles.intro}>
           <div>

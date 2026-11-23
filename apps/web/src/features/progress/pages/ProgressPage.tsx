@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Flame, Play, Sparkles, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants';
-import { api, ApiError } from '@/shared/api/client';
-import type { AttemptHistoryItem, ScoreSummary, WorldProgress, WorldSummary } from '@/shared/api/types';
-import { InsightsHeader } from '@/shared/components/InsightsHeader';
-import { ScreenMessage } from '@/shared/components/ScreenMessage';
+import { ARITHMETIC_WORLD_SLUG } from '@/lib/worlds';
+import { api, ApiError } from '@/services/api/client';
+import type { AttemptHistoryItem, ScoreSummary, WorldProgress, WorldSummary } from '@/services/api/types';
+import { InsightsHeader } from '@/components/common/InsightsHeader';
+import { ScreenMessage } from '@/components/ui/ScreenMessage';
 import styles from './ProgressPage.module.css';
 
 const RECENT_LIMIT = 10;

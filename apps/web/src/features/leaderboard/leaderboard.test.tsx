@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockApi, ok, renderApp, sequence, signIn, student } from '@/test/utils';
-import type { Leaderboard } from '@/shared/api/types';
+import type { Leaderboard } from '@/services/api/types';
 
 const entry = (rank: number, displayName: string, points: number, isCurrentUser = false) => ({
   rank,

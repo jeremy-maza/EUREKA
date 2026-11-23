@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Handler, mockApi, ok, renderApp, sequence, signIn, teacher } from '@/test/utils';
-import type { StudentOverview, TeacherGroup } from '@/shared/api/types';
+import type { StudentOverview, TeacherGroup } from '@/services/api/types';
 
 const totals = {
   points: 0,

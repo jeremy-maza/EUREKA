@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Clock, RotateCcw, Send, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { ARITHMETIC_WORLD_SLUG } from '@/features/game/constants';
-import { FloatingIsland } from '@/features/game/components/FloatingIsland';
+import { ARITHMETIC_WORLD_SLUG } from '@/lib/worlds';
+import { FloatingIsland } from '@/components/ui/FloatingIsland';
 import { Grasshopper } from '@/features/game/components/Grasshopper';
-import { api, ApiError } from '@/shared/api/client';
+import { api, ApiError } from '@/services/api/client';
 import {
   describeFailure,
   describeSuccess,
@@ -15,9 +15,9 @@ import {
   isWorldProgress,
   type Success,
 } from '@/features/game/feedback';
-import type { ChallengeAttempt, Rule, WorldProgress } from '@/shared/api/types';
-import { Logo } from '@/shared/components/Logo';
-import { ScreenMessage } from '@/shared/components/ScreenMessage';
+import type { ChallengeAttempt, Rule, WorldProgress } from '@/services/api/types';
+import { Logo } from '@/components/ui/Logo';
+import { ScreenMessage } from '@/components/ui/ScreenMessage';
 import styles from './GamePage.module.css';
 
 type Feedback = 'idle' | 'success' | 'error';
