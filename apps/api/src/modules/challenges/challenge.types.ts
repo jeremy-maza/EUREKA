@@ -13,12 +13,21 @@ export interface ChallengeDefinition {
   /** Id de la regla que este reto desbloquea, si alguna. */
   introducesRuleId: string | null;
   /**
-   * Solución de referencia. Debe cumplir TODAS las reglas del mundo: así el reto sigue
-   * siendo resoluble aunque el jugador reinicie la secuencia con todas las reglas activas.
-   * Nunca se expone a los estudiantes.
+   * Solución de referencia: una respuesta correcta con las reglas activas en la posición del reto (en una
+   * secuencia planificada, `ruleIds.slice(0, position - 1)`) y la sintaxis del mundo; lo comprueba
+   * `ChallengeEngine.verifySolvable`. Nunca se expone a los estudiantes.
    */
   referenceSolution: string;
+  /**
+   * Tipo de enunciado (por defecto `EXPRESSION`):
+   *  - `EXPRESSION`: `expression` es una operación evaluable; la respuesta debe valer lo mismo.
+   *  - `EQUATION`: `expression` es una ecuación lineal en `x` (p. ej. "3 * x + 4 = 19"); la respuesta debe valer
+   *    la solución `x` (= `expectedResult`). El enunciado no es una respuesta válida (contiene `x`).
+   */
+  statementKind?: StatementKind;
 }
+
+export type StatementKind = 'EXPRESSION' | 'EQUATION';
 
 export type EvaluationFailureReason =
   'SYNTAX_ERROR' | 'DIVISION_BY_ZERO' | 'WRONG_RESULT' | 'CLAIMED_RESULT_MISMATCH' | 'RULE_VIOLATION';

@@ -76,6 +76,58 @@ export class Fraction {
     return this.denominator === 1n;
   }
 
+  isNegative(): boolean {
+    return this.numerator < 0n;
+  }
+
+  abs(): Fraction {
+    return this.isNegative() ? this.negate() : this;
+  }
+
+  /** Negativo, cero o positivo según `this` sea menor, igual o mayor que `other`. */
+  compare(other: Fraction): number {
+    const difference = this.numerator * other.denominator - other.numerator * this.denominator;
+    return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+  }
+
+  /**
+   * Potencia de exponente entero (el llamador acota el tamaño). `0 ^ -n` divide entre cero.
+   * @throws DivisionByZeroError
+   */
+  pow(exponent: bigint): Fraction {
+    if (exponent < 0n) {
+      if (this.isZero()) throw new DivisionByZeroError();
+      return Fraction.of(this.denominator ** -exponent, this.numerator ** -exponent);
+    }
+    return Fraction.of(this.numerator ** exponent, this.denominator ** exponent);
+  }
+
+  /**
+   * Escritura decimal exacta si existe (denominador de la forma 2^a·5^b): `5/4` → `"1.25"`, `-1/2` → `"-0.5"`,
+   * `7` → `"7"`. Devuelve `null` si el decimal es periódico (`1/3`).
+   */
+  toTerminatingDecimal(): string | null {
+    let rest = this.denominator;
+    let twos = 0;
+    let fives = 0;
+    while (rest % 2n === 0n) {
+      rest /= 2n;
+      twos += 1;
+    }
+    while (rest % 5n === 0n) {
+      rest /= 5n;
+      fives += 1;
+    }
+    if (rest !== 1n) return null;
+    const places = Math.max(twos, fives);
+    if (places === 0) return this.numerator.toString();
+    const scaled =
+      ((this.numerator < 0n ? -this.numerator : this.numerator) * 10n ** BigInt(places)) / this.denominator;
+    const digits = scaled.toString().padStart(places + 1, '0');
+    const text = `${digits.slice(0, -places)}.${digits.slice(-places)}`;
+    return this.numerator < 0n ? `-${text}` : text;
+  }
+
   /** Forma canónica: `"21"` o `"7/2"`. */
   toString(): string {
     return this.isInteger() ? this.numerator.toString() : `${this.numerator}/${this.denominator}`;

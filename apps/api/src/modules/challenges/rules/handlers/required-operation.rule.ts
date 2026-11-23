@@ -1,4 +1,12 @@
-import { BINARY_OPERATORS, BinaryOperator, ExpressionNode, collectNodes, isCommutative } from '../../math';
+import {
+  BINARY_OPERATORS,
+  BinaryOperator,
+  ExpressionNode,
+  Fraction,
+  collectNodes,
+  isCommutative,
+  numberValue,
+} from '../../math';
 import { InvalidRuleConfigError } from '../rule.errors';
 import { RuleConfig, RuleHandler } from '../rule.types';
 
@@ -10,8 +18,9 @@ export interface RequiredOperationConfig {
   right: number;
 }
 
+/** Literal con ese valor (por valor: `07` y, en mundos con decimales, `7.0` cuentan como 7). */
 function isLiteral(node: ExpressionNode, value: number): boolean {
-  return node.kind === 'number' && node.value === BigInt(value);
+  return node.kind === 'number' && numberValue(node).equals(Fraction.of(value));
 }
 
 /**

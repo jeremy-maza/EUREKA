@@ -18,7 +18,8 @@ export interface TimingCheck {
 
 /**
  * Cálculo del tiempo límite y comprobación de plazos.
- *   timeLimit = baseTime + (activeRulesCount − 1) · additionalTimePerRule
+ *   timeLimit = baseTime + (activeRulesCount − 1) · additionalTimePerRule + extraSeconds
+ * (`extraSeconds` lo fija cada mundo, p. ej. para resolver ecuaciones; 0 por defecto).
  *
  * Es puro: recibe instantes explícitos (`Date`) en lugar de leer el reloj. Quien lo use en el
  * backend debe pasar SIEMPRE marcas de tiempo del servidor, nunca las del cliente.
@@ -36,16 +37,25 @@ export class TimerManager {
     }
   }
 
-  calculateTimeLimitSeconds(activeRulesCount: number): number {
+  calculateTimeLimitSeconds(activeRulesCount: number, extraSeconds = 0): number {
     if (!Number.isInteger(activeRulesCount) || activeRulesCount < 0) {
       throw new RangeError('activeRulesCount debe ser un entero >= 0.');
     }
+    if (!Number.isInteger(extraSeconds) || extraSeconds < 0) {
+      throw new RangeError('extraSeconds debe ser un entero >= 0.');
+    }
     const effectiveCount = Math.max(1, activeRulesCount);
-    return this.config.baseTimeSeconds + (effectiveCount - 1) * this.config.additionalTimePerRuleSeconds;
+    return (
+      this.config.baseTimeSeconds +
+      (effectiveCount - 1) * this.config.additionalTimePerRuleSeconds +
+      extraSeconds
+    );
   }
 
-  calculateDeadline(startedAt: Date, activeRulesCount: number): Date {
-    return new Date(startedAt.getTime() + this.calculateTimeLimitSeconds(activeRulesCount) * 1000);
+  calculateDeadline(startedAt: Date, activeRulesCount: number, extraSeconds = 0): Date {
+    return new Date(
+      startedAt.getTime() + this.calculateTimeLimitSeconds(activeRulesCount, extraSeconds) * 1000,
+    );
   }
 
   /** Un envío exactamente en el instante límite se considera a tiempo. */

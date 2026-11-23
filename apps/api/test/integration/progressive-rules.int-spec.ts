@@ -1,9 +1,11 @@
-import { arithmeticWorld } from '../../src/modules/worlds';
+import { ALL_WORLDS } from '../../src/modules/worlds';
+import { CLASSIC_SOLUTIONS, RULE_7X1, RULE_NO_2, RULE_NO_5 } from '../helpers/scripted-planner';
 import { createTestApp, Player, TestContext } from '../helpers/test-app';
 
-const [RULE_NO_2, RULE_7X1, RULE_NO_5] = arithmeticWorld.rules.map((rule) => rule.id);
+const arithmeticWorld = ALL_WORLDS[0];
 const keys = (rules: { key: string }[]) => rules.map((rule) => rule.key);
-const REF = arithmeticWorld.challenges.map((challenge) => challenge.referenceSolution);
+// El Mundo 1 juega aquí la secuencia clásica (planificador de pruebas).
+const REF = CLASSIC_SOLUTIONS;
 
 /**
  * Recorrido completo de un jugador por el Mundo 1 comprobando, en CADA respuesta de la API, que solo se
@@ -27,7 +29,7 @@ describe('Reglas progresivas: recorrido de principio a fin (HTTP + PostgreSQL re
     expect(text).not.toMatch(/referenceSolution|expectedResult/);
   };
 
-  it('las reglas aparecen una a una, se acumulan, sobreviven al fallo y al reinicio, y los puntos no cambian', async () => {
+  it('las reglas aparecen una a una y se acumulan; un fallo las descarta (quedan como dominadas) y los puntos no cambian', async () => {
     // 1-2. Registro y acceso.
     const ana = await Player.register(ctx, 'ana@example.com', undefined, 'Ana');
     const me = await ana.get('/users/me').expect(200);
@@ -35,7 +37,7 @@ describe('Reglas progresivas: recorrido de principio a fin (HTTP + PostgreSQL re
 
     // 3-4. Mundo 1 y sesión: aún no hay reglas, y la lista de reglas desbloqueadas está vacía.
     const worlds = await ana.get('/worlds').expect(200);
-    expect(worlds.body.map((world: { slug: string }) => world.slug)).toEqual(['arithmetic']);
+    expect(worlds.body.map((world: { slug: string }) => world.slug)).toEqual(ALL_WORLDS.map((w) => w.slug));
     const sessionId = (await ana.startSession().expect(201)).body.session.id;
     expect((await ana.get('/worlds/arithmetic/rules').expect(200)).body).toEqual([]);
 
@@ -90,13 +92,16 @@ describe('Reglas progresivas: recorrido de principio a fin (HTTP + PostgreSQL re
       bestStreak: 3,
       totalPoints: 450,
     });
+    // Las tres reglas activas de la secuencia se descartan; las dos superadas quedan como dominadas.
+    expect(keys(failed.body.discardedRules)).toEqual([RULE_NO_2, RULE_7X1, RULE_NO_5]);
     expect(keys(failed.body.progress.unlockedRules)).toEqual([RULE_NO_2, RULE_7X1]);
+    expect(failed.body.progress.activeSequence).toBeNull();
 
-    // 11-12. Reinicio de la secuencia (misma sesión): reto 1 con las reglas ya desbloqueadas activas.
+    // 11-12. Nueva secuencia (misma sesión): reto 1 SIN reglas activas.
     const again = await ana.startAttempt(sessionId).expect(201);
-    expect(again.body).toMatchObject({ position: 1, newRule: null });
-    expect(keys(again.body.rules)).toEqual([RULE_NO_2, RULE_7X1]);
-    expectNoFutureRules(again.body, [RULE_NO_2, RULE_7X1]);
+    expect(again.body).toMatchObject({ position: 1, newRule: null, rules: [] });
+    expect(again.body.sequenceId).not.toBe(c1.body.sequenceId);
+    expectNoFutureRules(again.body, []);
 
     // 13-14. Los puntos históricos y las estadísticas reflejan los datos reales del servidor.
     const score = await ana.get('/worlds/arithmetic/score').expect(200);

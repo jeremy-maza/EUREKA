@@ -1,24 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ChallengeEngine, RuleEngine } from '../challenges';
-import { PrismaService } from '../../prisma/prisma.service';
-import { validateWorldDefinition } from './world-validator';
+import { DbClient, PrismaService } from '../../prisma/prisma.service';
 import { WorldDefinition } from './world.types';
+import { WorldCatalog } from './worlds.service';
 
-/** Mundo cargado de la BD: definición para el motor + ids de fila para persistir. */
+/** Mundo listo para jugar: definición del catálogo (código) + ids de fila para persistir. */
 export interface LoadedWorld {
   id: string;
   isEnabled: boolean;
   definition: WorldDefinition;
   /** clave de regla → id de fila */
   ruleRowIds: ReadonlyMap<string, string>;
-  /** clave de reto → id de fila */
-  challengeRowIds: ReadonlyMap<string, string>;
 }
 
 /**
- * Carga los mundos desde PostgreSQL y los VALIDA con el mismo validador del catálogo
- * (incluida la resolubilidad de cada reto). El catálogo es de solo lectura en ejecución,
- * por lo que se cachea en memoria; cámbialo con `db:seed` y reinicia (o `clearCache()`).
+ * Combina el catálogo en código (reglas, sintaxis, configuración de secuencias y generación; validado al arrancar
+ * en `WorldsModule`) con las filas de PostgreSQL (ids). Un mundo solo se sirve si está en el catálogo, está
+ * habilitado en la BD y todas sus reglas tienen fila (si no, falta `npm run db:seed`). Se cachea en memoria.
+ *
+ * Los métodos aceptan el cliente transaccional del llamador: dentro de una transacción NUNCA se debe consultar con
+ * el cliente raíz (con un pool pequeño se bloquearía esperando una conexión que la propia transacción retiene).
  */
 @Injectable()
 export class WorldsRepository {
@@ -27,8 +27,7 @@ export class WorldsRepository {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly ruleEngine: RuleEngine,
-    private readonly challengeEngine: ChallengeEngine,
+    private readonly catalog: WorldCatalog,
   ) {}
 
   clearCache(): void {
@@ -36,27 +35,30 @@ export class WorldsRepository {
     this.byId.clear();
   }
 
-  /** Mundos habilitados, por orden de presentación. */
-  async listEnabled(): Promise<LoadedWorld[]> {
-    const rows = await this.prisma.world.findMany({
+  /** Mundos habilitados y presentes en el catálogo, por orden de presentación. */
+  async listEnabled(db: DbClient | PrismaService = this.prisma): Promise<LoadedWorld[]> {
+    const rows = await db.world.findMany({
       where: { isEnabled: true },
       orderBy: { position: 'asc' },
       select: { slug: true },
     });
-    return Promise.all(rows.map((row) => this.getBySlug(row.slug)));
+    const playable = rows.filter((row) => this.catalog.find(row.slug) !== undefined);
+    const loaded: LoadedWorld[] = [];
+    for (const row of playable) loaded.push(await this.getBySlug(row.slug, db)); // en serie: un solo cliente
+    return loaded;
   }
 
-  /** @throws NotFoundException si no existe o no está habilitado. */
-  async getBySlug(slug: string): Promise<LoadedWorld> {
+  /** @throws NotFoundException si no existe, no está en el catálogo o no está habilitado. */
+  async getBySlug(slug: string, db: DbClient | PrismaService = this.prisma): Promise<LoadedWorld> {
     const cached = this.bySlug.get(slug);
     if (cached) return this.assertEnabled(cached);
-    const row = await this.prisma.world.findUnique({ where: { slug }, select: { id: true } });
-    if (!row) throw new NotFoundException(`El mundo "${slug}" no existe.`);
-    return this.assertEnabled(await this.load(row.id));
+    const row = await db.world.findUnique({ where: { slug }, select: { id: true } });
+    if (!row || !this.catalog.find(slug)) throw new NotFoundException(`El mundo "${slug}" no existe.`);
+    return this.assertEnabled(await this.load(row.id, db));
   }
 
-  async getById(id: string): Promise<LoadedWorld> {
-    return this.byId.get(id) ?? this.load(id);
+  async getById(id: string, db: DbClient | PrismaService = this.prisma): Promise<LoadedWorld> {
+    return this.byId.get(id) ?? this.load(id, db);
   }
 
   private assertEnabled(world: LoadedWorld): LoadedWorld {
@@ -65,51 +67,24 @@ export class WorldsRepository {
     return world;
   }
 
-  private async load(id: string): Promise<LoadedWorld> {
-    const row = await this.prisma.world.findUniqueOrThrow({
+  private async load(id: string, db: DbClient | PrismaService): Promise<LoadedWorld> {
+    const row = await db.world.findUniqueOrThrow({
       where: { id },
-      include: {
-        rules: true,
-        challenges: { orderBy: { position: 'asc' }, include: { introducesRule: true } },
-      },
+      include: { rules: { select: { id: true, key: true } } },
     });
+    const definition = this.catalog.find(row.slug);
+    if (!definition) throw new NotFoundException(`El mundo "${row.slug}" no existe.`);
 
-    const definition: WorldDefinition = {
-      slug: row.slug,
-      name: row.name,
-      description: row.description ?? '',
-      position: row.position,
-      rules: row.rules
-        .map((rule) => ({
-          id: rule.key,
-          type: rule.type,
-          description: rule.description,
-          config: rule.config as Record<string, unknown>,
-        }))
-        .sort((a, b) => a.id.localeCompare(b.id)),
-      challenges: row.challenges.map((challenge) => ({
-        id: challenge.key,
-        position: challenge.position,
-        expression: challenge.expression,
-        expectedResult: challenge.expectedResult,
-        introducesRuleId: challenge.introducesRule?.key ?? null,
-        referenceSolution: challenge.referenceSolution,
-      })),
-    };
+    const ruleRowIds = new Map(row.rules.map((rule) => [rule.key, rule.id]));
+    const missing = definition.rules.filter((rule) => !ruleRowIds.has(rule.id)).map((rule) => rule.id);
+    if (missing.length > 0) {
+      // Defecto de despliegue, no del jugador: el catálogo en código va por delante de la BD.
+      throw new Error(
+        `El mundo "${row.slug}" tiene reglas sin sembrar en la BD (${missing.join(', ')}). Ejecuta npm run db:seed.`,
+      );
+    }
 
-    // Nunca se sirve un mundo cuyos retos no sean resolubles con todas sus reglas.
-    validateWorldDefinition(definition, {
-      ruleEngine: this.ruleEngine,
-      challengeEngine: this.challengeEngine,
-    });
-
-    const loaded: LoadedWorld = {
-      id: row.id,
-      isEnabled: row.isEnabled,
-      definition,
-      ruleRowIds: new Map(row.rules.map((rule) => [rule.key, rule.id])),
-      challengeRowIds: new Map(row.challenges.map((challenge) => [challenge.key, challenge.id])),
-    };
+    const loaded: LoadedWorld = { id: row.id, isEnabled: row.isEnabled, definition, ruleRowIds };
     this.bySlug.set(row.slug, loaded);
     this.byId.set(row.id, loaded);
     return loaded;

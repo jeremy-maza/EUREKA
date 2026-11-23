@@ -12,7 +12,13 @@ import {
   toGroupDto,
 } from '../groups';
 import { ProgressionService, ProgressSummary } from '../progression';
-import { AttemptAnalyticsService, UserActivity, WorldStatisticsRow, StatisticsService } from '../statistics';
+import {
+  AttemptAnalyticsService,
+  ChallengeOutcomeRow,
+  StatisticsService,
+  UserActivity,
+  WorldStatisticsRow,
+} from '../statistics';
 import { LoadedWorld, WorldsRepository } from '../worlds';
 import {
   ActivitySummaryDto,
@@ -267,10 +273,11 @@ export class TeacherDashboardService {
         violatedRules: violated
           .filter((v) => v.worldSlug === slug)
           .sort((a, b) => b.violations - a.violations),
-        challenges: world.definition.challenges.map(
-          (challenge) =>
-            outcomes.find((o) => o.worldSlug === slug && o.position === challenge.position) ??
-            this.emptyChallenge(slug, challenge.position, challenge.expression),
+        // Una fila por posición posible de la secuencia (la más larga es la de dificultad máxima).
+        challenges: Array.from({ length: maxSequenceLength(world) }, (_, index) => index + 1).map(
+          (position) =>
+            outcomes.find((o) => o.worldSlug === slug && o.position === position) ??
+            this.emptyChallenge(slug, position, ''),
         ),
       };
     });
@@ -299,13 +306,12 @@ export class TeacherDashboardService {
       },
       orderBy: { id: 'desc' },
       take: query.limit + 1,
-      include: { challenge: { select: { key: true } } },
     });
     const page = rows.slice(0, query.limit);
     return {
       items: page.flatMap((row) => {
         const world = worldById.get(row.worldId);
-        return world ? [{ ...toHistoryItem(row, world.definition), worldSlug: world.definition.slug }] : [];
+        return world ? [{ ...toHistoryItem(row), worldSlug: world.definition.slug }] : [];
       }),
       nextCursor: rows.length > query.limit ? page[page.length - 1].id : null,
     };
@@ -371,7 +377,7 @@ export class TeacherDashboardService {
       ...toMetricsDto(this.rawFor(userId, world.id, ds)),
       progressStatus: progress ? progress.status : 'NOT_STARTED',
       currentPosition: progress?.currentPosition ?? null,
-      challengeCount: world.definition.challenges.length,
+      challengeCount: world.definition.sequence.ruleCount.BASELINE + 1,
       challengesCompleted: ds.completed.get(key(userId, world.id)) ?? 0,
       unlockedRulesCount: progress?.unlockedRulesCount ?? 0,
       currentStreak: progress?.streak ?? 0,
@@ -486,27 +492,18 @@ export class TeacherDashboardService {
     return result;
   }
 
-  private challengeDifficulty(
-    rows: { worldId: string; challengeId: string; attempts: number; correct: number }[],
-    worlds: LoadedWorld[],
-  ): ChallengeDifficultyDto[] {
-    const byRowId = new Map<string, { world: LoadedWorld; position: number; expression: string }>();
-    for (const world of worlds) {
-      for (const challenge of world.definition.challenges) {
-        const rowId = world.challengeRowIds.get(challenge.id);
-        if (rowId)
-          byRowId.set(rowId, { world, position: challenge.position, expression: challenge.expression });
-      }
-    }
+  /** Dificultad por posición de la secuencia (los retos se generan por secuencia: se agrupan por posición). */
+  private challengeDifficulty(rows: ChallengeOutcomeRow[], worlds: LoadedWorld[]): ChallengeDifficultyDto[] {
+    const worldById = new Map(worlds.map((world) => [world.id, world]));
     return rows.flatMap((row) => {
-      const info = byRowId.get(row.challengeId);
-      if (!info) return [];
+      const world = worldById.get(row.worldId);
+      if (!world) return [];
       const failures = row.attempts - row.correct;
       return [
         {
-          worldSlug: info.world.definition.slug,
-          position: info.position,
-          expression: info.expression,
+          worldSlug: world.definition.slug,
+          position: row.position,
+          expression: row.sampleExpression,
           attempts: row.attempts,
           correct: row.correct,
           failures,
@@ -527,4 +524,9 @@ export class TeacherDashboardService {
       failureRatePercent: null,
     };
   }
+}
+
+/** Retos de la secuencia más larga posible del mundo (dificultad máxima: reglas sorteadas + 1). */
+function maxSequenceLength(world: LoadedWorld): number {
+  return world.definition.sequence.ruleCount.HARDER + 1;
 }

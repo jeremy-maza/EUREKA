@@ -1,6 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { MathSyntaxDto } from '../../worlds/dto/world.dto';
+
+const DIFFICULTIES = ['EASIER', 'BASELINE', 'HARDER'] as const;
+export type DifficultyDto = (typeof DIFFICULTIES)[number];
 
 // ───────────── Peticiones ─────────────
 
@@ -50,8 +54,33 @@ export class RuleDto {
   @ApiProperty({ example: 'No puedes usar el dígito 2.' }) description!: string;
 }
 
+/** Regla DOMINADA: superada al menos una vez en este mundo (colección permanente). */
 export class UnlockedRuleDto extends RuleDto {
-  @ApiProperty() unlockedAt!: Date;
+  @ApiProperty({ description: 'Primera vez que se superó.' }) unlockedAt!: Date;
+}
+
+export class WorldRefDto {
+  @ApiProperty({ example: 'signs' }) slug!: string;
+  @ApiProperty({ example: 'Números y signos' }) name!: string;
+  @ApiProperty({ example: 2 }) position!: number;
+}
+
+export class UnlockRequirementDto {
+  @ApiProperty({ example: 'arithmetic' }) worldSlug!: string;
+  @ApiProperty({ example: 'Aritmética' }) worldName!: string;
+  @ApiProperty({ example: 1 }) position!: number;
+}
+
+export class ActiveSequenceDto {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty({ enum: DIFFICULTIES }) difficulty!: DifficultyDto;
+  @ApiProperty({ example: 4, description: 'Retos de esta secuencia (reglas sorteadas + 1).' })
+  challengeCount!: number;
+  @ApiProperty({
+    type: () => [RuleDto],
+    description: 'Reglas de esta secuencia ya superadas (siguen activas).',
+  })
+  rules!: RuleDto[];
 }
 
 export class SessionDto {
@@ -74,7 +103,7 @@ export class StartSessionResponseDto {
     nullable: true,
     description:
       'Reto que venció mientras el jugador estaba ausente y que esta petición cerró como TIMEOUT ' +
-      '(la secuencia se reinició; puntos y reglas se conservan). `null` si no había ninguno.',
+      '(la secuencia terminó y sus reglas se descartaron; los puntos se conservan). `null` si no había ninguno.',
   })
   expiredAttempt!: ExpiredAttemptDto | null;
 }
@@ -84,15 +113,29 @@ export class ChallengeAttemptDto {
   @ApiProperty({ format: 'uuid' }) attemptId!: string;
   @ApiProperty({ format: 'uuid' }) sessionId!: string;
   @ApiProperty({ example: 'arithmetic' }) worldSlug!: string;
+  @ApiProperty({ format: 'uuid' }) sequenceId!: string;
+  @ApiProperty({ enum: DIFFICULTIES, description: 'Dificultad de la secuencia.' }) difficulty!: DifficultyDto;
   @ApiProperty({ example: 2 }) position!: number;
-  @ApiProperty({ example: 4 }) challengeCount!: number;
-  @ApiProperty({ example: '3 * 7 * 2', description: 'Operación a resolver.' }) expression!: string;
-  @ApiProperty({ type: [RuleDto], description: 'Todas las reglas activas (acumuladas + la nueva).' })
+  @ApiProperty({ example: 4, description: 'Retos de esta secuencia.' }) challengeCount!: number;
+  @ApiProperty({
+    enum: ['EXPRESSION', 'EQUATION'],
+    description: '`EQUATION`: el enunciado es una ecuación en x y la respuesta debe valer x.',
+  })
+  statementKind!: 'EXPRESSION' | 'EQUATION';
+  @ApiProperty({ example: '3 * 7 * 2', description: 'Operación (o ecuación) a resolver.' })
+  expression!: string;
+  @ApiProperty({ description: 'Qué debe escribir el jugador (texto del servidor).' }) instruction!: string;
+  @ApiProperty({ type: MathSyntaxDto, description: 'Símbolos admitidos en la respuesta en este mundo.' })
+  syntax!: MathSyntaxDto;
+  @ApiProperty({
+    type: [RuleDto],
+    description: 'Reglas activas: las ya superadas en la secuencia + la nueva.',
+  })
   rules!: RuleDto[];
   @ApiProperty({
     type: RuleDto,
     nullable: true,
-    description: 'Regla que introduce este reto; se guarda al completarlo.',
+    description: 'Regla que introduce este reto; se acumula al completarlo.',
   })
   newRule!: RuleDto | null;
   @ApiProperty({ example: 75 }) timeLimitSeconds!: number;
@@ -144,14 +187,30 @@ export class WorldProgressDto {
   @ApiProperty({ example: 'arithmetic' }) worldSlug!: string;
   @ApiProperty({ enum: ['IN_PROGRESS', 'COMPLETED'] }) status!: 'IN_PROGRESS' | 'COMPLETED';
   @ApiProperty({ example: 2, description: 'Posición del reto actual (1-based).' }) currentPosition!: number;
-  @ApiProperty({ example: 4 }) challengeCount!: number;
+  @ApiProperty({ example: 4, description: 'Retos de la secuencia activa (o de una normal si no hay).' })
+  challengeCount!: number;
+  @ApiProperty({ description: 'El jugador puede jugar este mundo.' }) unlocked!: boolean;
+  @ApiProperty({
+    type: UnlockRequirementDto,
+    nullable: true,
+    description: 'Mundo que hay que completar para desbloquearlo (`null` si ya está desbloqueado).',
+  })
+  unlockRequirement!: UnlockRequirementDto | null;
+  @ApiProperty({ example: 1, description: 'Secuencias completas superadas.' }) completionsCount!: number;
+  @ApiProperty({ nullable: true, type: Date }) firstCompletedAt!: Date | null;
+  @ApiProperty({ example: 6, description: 'Reglas del repertorio del mundo.' }) ruleCount!: number;
+  @ApiProperty({ type: ActiveSequenceDto, nullable: true }) activeSequence!: ActiveSequenceDto | null;
   @ApiProperty({ example: 3, description: 'Racha actual (independiente por mundo).' }) streak!: number;
   @ApiProperty() bestStreak!: number;
   @ApiProperty({ example: 450 }) totalPoints!: number;
   @ApiProperty({ example: 2000, description: 'Multiplicador (milésimas) que recibiría el próximo acierto.' })
   nextMultiplierMilli!: number;
   @ApiProperty({ example: '2' }) nextMultiplier!: string;
-  @ApiProperty({ type: [UnlockedRuleDto] }) unlockedRules!: UnlockedRuleDto[];
+  @ApiProperty({
+    type: [UnlockedRuleDto],
+    description: 'Reglas DOMINADAS (superadas alguna vez). No son las activas: esas son de la secuencia.',
+  })
+  unlockedRules!: UnlockedRuleDto[];
   @ApiProperty({ type: String, format: 'uuid', nullable: true }) activeSessionId!: string | null;
   @ApiProperty({ type: String, format: 'uuid', nullable: true }) pendingAttemptId!: string | null;
   @ApiProperty({ type: WorldStatisticsDto }) statistics!: WorldStatisticsDto;
@@ -182,11 +241,26 @@ export class AnswerResultDto {
   evaluatedValue!: string | null;
   @ApiProperty({ type: [ViolationDto] }) violations!: ViolationDto[];
   @ApiProperty({ type: ScoreAwardDto }) score!: ScoreAwardDto;
-  @ApiProperty({ type: RuleDto, nullable: true, description: 'Regla que este acierto acaba de guardar.' })
+  @ApiProperty({ type: RuleDto, nullable: true, description: 'Regla que este acierto acaba de superar.' })
   unlockedRule!: RuleDto | null;
-  @ApiProperty({ description: 'El fallo/timeout devolvió al jugador al reto 1 (las reglas se conservan).' })
+  @ApiProperty({
+    description:
+      'El fallo/timeout terminó la secuencia: vuelta al reto 1, racha a 0 y reglas descartadas (los puntos se conservan).',
+  })
   sequenceRestarted!: boolean;
-  @ApiProperty() worldCompleted!: boolean;
+  @ApiProperty({
+    type: [RuleDto],
+    description:
+      'Reglas de la secuencia que el fallo descarta (la siguiente sorteará otras). `[]` si acierto.',
+  })
+  discardedRules!: RuleDto[];
+  @ApiProperty({ description: 'Se completó la secuencia entera (el mundo).' }) worldCompleted!: boolean;
+  @ApiProperty({
+    type: WorldRefDto,
+    nullable: true,
+    description: 'Mundo que este acierto desbloquea por primera vez, si alguno.',
+  })
+  nextWorldUnlocked!: WorldRefDto | null;
   @ApiProperty({ type: WorldProgressDto, description: 'Progreso del jugador tras este intento.' })
   progress!: WorldProgressDto;
   @ApiProperty({ description: '`true` si es la repetición idempotente de un envío ya resuelto.' })

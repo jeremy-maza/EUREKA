@@ -54,7 +54,9 @@ export class PlayerStateController {
   }
 
   @Get('worlds/:slug/rules')
-  @ApiOperation({ summary: 'Reglas acumuladas del jugador en el mundo' })
+  @ApiOperation({
+    summary: 'Reglas dominadas del jugador en el mundo (superadas alguna vez; no son las activas)',
+  })
   @ApiOkResponse({ type: [UnlockedRuleDto] })
   getRules(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string): Promise<UnlockedRuleDto[]> {
     return this.state.getUnlockedRules(user.id, slug);

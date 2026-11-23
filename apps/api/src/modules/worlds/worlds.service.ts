@@ -1,8 +1,8 @@
 import { WorldDefinition } from './world.types';
 
 /**
- * Registro en memoria de mundos del catálogo (la fuente de verdad del MVP es código;
- * la tabla `worlds`/`rules`/`challenges` se rellena con `npm run db:seed`).
+ * Registro en memoria de mundos del catálogo. La fuente de verdad es el código (`catalog/`); las tablas
+ * `worlds`/`rules` se rellenan con `npm run db:seed` para que intentos y estadísticas puedan referenciarlas.
  */
 export class WorldCatalog {
   private readonly bySlug: ReadonlyMap<string, WorldDefinition>;
@@ -13,6 +13,10 @@ export class WorldCatalog {
 
   list(): WorldDefinition[] {
     return [...this.bySlug.values()].sort((a, b) => a.position - b.position);
+  }
+
+  find(slug: string): WorldDefinition | undefined {
+    return this.bySlug.get(slug);
   }
 
   /** @throws Error si el mundo no existe. */

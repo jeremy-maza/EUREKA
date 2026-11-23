@@ -102,7 +102,7 @@ describe('RuleEngine', () => {
 
   it('rechaza configuración inválida de REQUIRED_OPERATION', () => {
     for (const config of [
-      { operator: '^', left: 1, right: 2 },
+      { operator: '%', left: 1, right: 2 },
       { operator: '*', left: -1, right: 2 },
       { operator: '*', left: 1 },
     ]) {

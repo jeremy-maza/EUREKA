@@ -5,23 +5,28 @@
  *  - Solo toca cuentas cuyo correo termina en `@demo.eureka.local` (y el grupo demo que ellas crearon):
  *    nunca lee, modifica ni borra datos de usuarios reales.
  *  - Se niega a ejecutarse con `NODE_ENV=production`.
- *  - Los datos se generan JUGANDO contra el motor real (`GameService`) con un reloj retrasado, de modo que
- *    intentos, libro de puntos, estadísticas y reglas desbloqueadas son los que produciría el juego.
- *  - Es determinista: mismas cuentas, mismas respuestas y mismos resultados en cada ejecución
+ *  - Los datos se generan JUGANDO contra el motor real (`GameService`, planificador de secuencias real) con un reloj
+ *    retrasado, de modo que secuencias, intentos, libro de puntos, estadísticas y reglas dominadas son los del juego.
+ *    Como oráculo de respuestas se usa la solución de referencia que el propio generador guardó con cada reto.
+ *  - Es determinista: semillas fijas por escenario ⇒ mismas secuencias, respuestas y resultados en cada ejecución
  *    (solo cambian los ids y las marcas de tiempo, que se calculan relativas a `now`).
  *  - Es idempotente: `seedDemoData` borra primero los datos demo anteriores.
  */
 import { PrismaClient, UserRole } from '../../src/generated/prisma/client';
 import { PasswordHasher } from '../../src/modules/auth/password-hasher';
-import { arithmeticWorld } from '../../src/modules/worlds/catalog/arithmetic.world';
+import { SequentialSeedSource } from '../../src/common/seed-source';
+import { GameService } from '../../src/modules/game/game.service';
+import { ALL_WORLDS } from '../../src/modules/worlds/catalog';
 import { createDemoGameService, DemoClock } from './demo-game';
 
 export const DEMO_EMAIL_DOMAIN = 'demo.eureka.local';
 export const DEMO_GROUP_NAME = 'Grupo Demo (datos de demostración)';
 export const DEFAULT_DEMO_PASSWORD = 'demo-eureka-2026';
-export const WORLD_SLUG = arithmeticWorld.slug;
+/** Mundos en orden de desbloqueo (1 = Aritmética … 5 = Caos matemático). */
+export const WORLD_SLUGS = ALL_WORLDS.map((world) => world.slug);
+export const WORLD_SLUG = WORLD_SLUGS[0];
 
-export type DemoScenarioId = 'A' | 'B' | 'C' | 'D' | 'E';
+export type DemoScenarioId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
 
 export interface DemoAccount {
   scenario: DemoScenarioId | 'DOCENTE';
@@ -39,7 +44,7 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
     email: email('demo.a.nuevo'),
     displayName: 'Demo A · Jugador nuevo',
     role: UserRole.STUDENT,
-    description: 'Sin progreso, puntos ni racha. Listo para empezar el Mundo 1.',
+    description: 'Sin progreso, puntos ni racha. Solo el Mundo 1 está desbloqueado.',
   },
   {
     scenario: 'B',
@@ -47,7 +52,7 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
     displayName: 'Demo B · Progreso',
     role: UserRole.STUDENT,
     description:
-      '3 aciertos seguidos: 450 puntos, racha 3, 2 reglas desbloqueadas; el reto 4 está por empezar.',
+      'Mundo 1: 3 aciertos seguidos (450 puntos, racha 3, 2 reglas dominadas); el reto 4 de su secuencia está por empezar.',
   },
   {
     scenario: 'C',
@@ -55,7 +60,7 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
     displayName: 'Demo C · Secuencia fallida',
     role: UserRole.STUDENT,
     description:
-      'Tenía 3 aciertos (450 puntos) y falló el reto 4 (valor correcto pero rompe reglas activas): racha 0, conserva puntos y 2 reglas.',
+      'Mundo 1: tenía 3 aciertos (450 puntos) y falló el reto 4 rompiendo reglas: racha 0, conserva los puntos; la próxima secuencia sorteará reglas nuevas.',
   },
   {
     scenario: 'D',
@@ -63,7 +68,7 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
     displayName: 'Demo D · Avanzado',
     role: UserRole.STUDENT,
     description:
-      'Completó el Mundo 1 dos veces seguidas: 2 200 puntos, racha 8, 3 reglas y el próximo acierto ya vale ×5 (tope).',
+      'Completó el Mundo 1 dos veces (la segunda en dificultad intensa): 2 700 puntos, racha 9, el próximo acierto vale ×5; también completó el Mundo 2, así que tiene el Mundo 3 desbloqueado.',
   },
   {
     scenario: 'E',
@@ -71,14 +76,22 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
     displayName: 'Demo E · Reto expirado',
     role: UserRole.STUDENT,
     description:
-      'Dejó el reto 3 sin responder y su plazo venció: al entrar, el servidor lo cierra por TIMEOUT (racha 0, conserva 250 puntos y 1 regla).',
+      'Mundo 1: dejó el reto 3 sin responder y su plazo venció; al entrar, el servidor lo cierra por TIMEOUT (racha 0, conserva 250 puntos).',
+  },
+  {
+    scenario: 'F',
+    email: email('demo.f.explorador'),
+    displayName: 'Demo F · Explorador',
+    role: UserRole.STUDENT,
+    description:
+      'Completó los Mundos 1 a 4 (700 puntos en cada uno): el Mundo 5 (Caos matemático) está desbloqueado.',
   },
   {
     scenario: 'DOCENTE',
     email: email('demo.docente'),
     displayName: 'Demo · Docente',
     role: UserRole.TEACHER,
-    description: 'Docente del grupo demo: ve a los cinco estudiantes demo en el panel y en la clasificación.',
+    description: 'Docente del grupo demo: ve a los seis estudiantes demo en el panel y en la clasificación.',
   },
 ];
 
@@ -154,13 +167,17 @@ export interface SeedDemoResult {
 
 type Expected = 'CORRECT' | 'INCORRECT';
 
-/** Respuestas de referencia del catálogo: cumplen TODAS las reglas a la vez (válidas en cualquier punto). */
-const SOLUTIONS = arithmeticWorld.challenges.map((challenge) => challenge.referenceSolution);
-/** El reto 4 (`5 * 8`) vale 40 pero usa el 5 que él mismo prohíbe y no contiene `7 * 1`: acierta el valor, rompe reglas. */
-const RULE_BREAKING_ANSWER_FOR_CHALLENGE_4 = arithmeticWorld.challenges[3].expression;
-
 const SECONDS_PER_ANSWER = 8;
 const MINUTES = 60_000;
+/** Semilla inicial de las secuencias de cada escenario (deterministas y distintas entre escenarios). */
+const SEED_BASE: Record<DemoScenarioId, number> = {
+  A: 1_000,
+  B: 2_000,
+  C: 3_000,
+  D: 4_000,
+  E: 5_000,
+  F: 6_000,
+};
 
 export async function seedDemoData(
   prisma: PrismaClient,
@@ -171,10 +188,14 @@ export async function seedDemoData(
   const now = options.now ?? new Date();
   const password = options.password ?? env.DEMO_PASSWORD ?? DEFAULT_DEMO_PASSWORD;
 
-  const world = await prisma.world.findUnique({ where: { slug: WORLD_SLUG } });
-  if (!world) {
+  const seeded = await prisma.world.findMany({
+    where: { slug: { in: WORLD_SLUGS } },
+    select: { slug: true },
+  });
+  const missing = WORLD_SLUGS.filter((slug) => !seeded.some((world) => world.slug === slug));
+  if (missing.length > 0) {
     throw new Error(
-      `No existe el mundo "${WORLD_SLUG}" en la base de datos. Ejecuta primero: npm run db:seed`,
+      `Faltan mundos en la base de datos (${missing.join(', ')}). Ejecuta primero: npm run db:seed`,
     );
   }
 
@@ -191,62 +212,101 @@ export async function seedDemoData(
   const userId = (scenario: DemoAccount['scenario']): string => users.get(scenario)!;
 
   const clock = new DemoClock(now);
-  const game = createDemoGameService(prisma, clock, env);
+  // Un servicio por escenario: cada uno con su propia serie de semillas, independiente del orden de ejecución.
+  const games = new Map<DemoScenarioId, GameService>();
+  const gameFor = (scenario: DemoScenarioId): GameService => {
+    let game = games.get(scenario);
+    if (!game) {
+      game = createDemoGameService(prisma, clock, new SequentialSeedSource(SEED_BASE[scenario]), env);
+      games.set(scenario, game);
+    }
+    return game;
+  };
+
+  /** Reto generado del intento (el oráculo de respuestas es la solución que guardó el generador). */
+  const challengeOf = async (attemptId: string) =>
+    (
+      await prisma.challengeAttempt.findUniqueOrThrow({
+        where: { id: attemptId },
+        include: { sequenceChallenge: true },
+      })
+    ).sequenceChallenge!;
 
   /** Juega un reto completo (iniciar, «pensar» unos segundos, responder) y comprueba el resultado esperado. */
   const play = async (
     scenario: DemoScenarioId,
     sessionId: string,
-    expression: string,
+    answer: 'SOLVE' | 'BREAK_RULES',
     expected: Expected,
   ) => {
+    const game = gameFor(scenario);
     const attempt = await game.startAttempt(userId(scenario), sessionId);
+    const challenge = await challengeOf(attempt.attemptId);
+    // Romper reglas: desde el reto 2 el generador garantiza que enviar el enunciado tal cual viola alguna regla.
+    const expression = answer === 'SOLVE' ? challenge.referenceSolution : challenge.expression;
     clock.advanceSeconds(SECONDS_PER_ANSWER);
     const result = await game.submitAnswer(userId(scenario), attempt.attemptId, expression);
     if (result.outcome !== expected) {
       throw new Error(
-        `Fixture ${scenario}: se esperaba ${expected} con "${expression}" pero el motor devolvió ${result.outcome}. ` +
-          'Revisa si el catálogo del mundo cambió.',
+        `Fixture ${scenario}: se esperaba ${expected} con "${expression}" pero el motor devolvió ${result.outcome}.`,
       );
     }
     return result;
   };
-  const openSession = async (scenario: DemoScenarioId) =>
-    (await game.startSession(userId(scenario), WORLD_SLUG)).session.id;
-  const playCorrect = async (scenario: DemoScenarioId, sessionId: string, challengeCount: number) => {
-    for (let index = 0; index < challengeCount; index += 1) {
-      await play(scenario, sessionId, SOLUTIONS[index], 'CORRECT');
+  const openSession = async (scenario: DemoScenarioId, world = WORLD_SLUG) =>
+    (await gameFor(scenario).startSession(userId(scenario), world)).session.id;
+  const playCorrect = async (scenario: DemoScenarioId, sessionId: string, count: number) => {
+    for (let index = 0; index < count; index += 1) await play(scenario, sessionId, 'SOLVE', 'CORRECT');
+  };
+  /** Completa la secuencia entera de una sesión nueva en `world`. */
+  const completeWorld = async (scenario: DemoScenarioId, world: string) => {
+    const sessionId = await openSession(scenario, world);
+    for (;;) {
+      const result = await play(scenario, sessionId, 'SOLVE', 'CORRECT');
+      if (result.worldCompleted) return result;
     }
   };
 
   // ── A · Jugador nuevo: sin filas de progreso ni sesiones. ──
 
-  // ── B · Progreso: 3 aciertos, el reto 4 sin empezar. ──
+  // ── B · Progreso: 3 aciertos en el Mundo 1; el reto 4 sin empezar. ──
   clock.set(new Date(now.getTime() - 60 * MINUTES));
   await playCorrect('B', await openSession('B'), 3);
 
-  // ── C · Secuencia fallida: 3 aciertos y fallo por regla en el reto 4. ──
+  // ── C · Secuencia fallida: 3 aciertos y fallo por reglas en el reto 4. ──
   clock.set(new Date(now.getTime() - 50 * MINUTES));
   const sessionC = await openSession('C');
   await playCorrect('C', sessionC, 3);
-  const failed = await play('C', sessionC, RULE_BREAKING_ANSWER_FOR_CHALLENGE_4, 'INCORRECT');
+  const failed = await play('C', sessionC, 'BREAK_RULES', 'INCORRECT');
   if (failed.failureReason !== 'RULE_VIOLATION') {
     throw new Error(`Fixture C: se esperaba RULE_VIOLATION y fue ${failed.failureReason}.`);
   }
 
-  // ── D · Avanzado: el mundo completado dos veces seguidas (racha 8, el siguiente acierto ya vale ×5). ──
+  // ── D · Avanzado: Mundo 1 completado dos veces seguidas (racha 9, ×5) y Mundo 2 completado. ──
   clock.set(new Date(now.getTime() - 40 * MINUTES));
-  await playCorrect('D', await openSession('D'), arithmeticWorld.challenges.length); // completar cierra la sesión
+  await completeWorld('D', WORLD_SLUGS[0]); // completar cierra la sesión
   clock.advanceSeconds(30);
-  await playCorrect('D', await openSession('D'), arithmeticWorld.challenges.length); // nueva sesión: conserva reglas/racha
+  await completeWorld('D', WORLD_SLUGS[0]); // nueva sesión: secuencia nueva, conserva puntos y racha
+  clock.advanceSeconds(30);
+  const unlocked = await completeWorld('D', WORLD_SLUGS[1]);
+  if (unlocked.nextWorldUnlocked?.slug !== WORLD_SLUGS[2]) {
+    throw new Error('Fixture D: completar el Mundo 2 debería desbloquear el Mundo 3.');
+  }
 
-  // ── E · Reto expirado: reto 3 abierto hace 12 min y sin respuesta (plazo ≤ 90 s). Lo cierra el servidor al entrar. ──
+  // ── E · Reto expirado: reto 3 abierto hace 12 min y sin respuesta. Lo cierra el servidor al entrar. ──
   clock.set(new Date(now.getTime() - 12 * MINUTES));
   const sessionE = await openSession('E');
   await playCorrect('E', sessionE, 2);
-  const abandoned = await game.startAttempt(userId('E'), sessionE);
+  const abandoned = await gameFor('E').startAttempt(userId('E'), sessionE);
   if (abandoned.position !== 3 || abandoned.deadlineAt.getTime() >= now.getTime()) {
     throw new Error('Fixture E: el reto abandonado debería ser el 3 y estar vencido respecto a `now`.');
+  }
+
+  // ── F · Explorador: Mundos 1–4 completados, el Mundo 5 desbloqueado. ──
+  clock.set(new Date(now.getTime() - 30 * MINUTES));
+  for (const world of WORLD_SLUGS.slice(0, 4)) {
+    await completeWorld('F', world);
+    clock.advanceSeconds(30);
   }
 
   // ── Grupo demo con docente: habilita la clasificación y el panel docente. ──
@@ -260,7 +320,7 @@ export async function seedDemoData(
   await prisma.teacherGroupAssignment.create({
     data: { groupId: group.id, teacherId: userId('DOCENTE'), assignedById: userId('DOCENTE') },
   });
-  for (const scenario of ['A', 'B', 'C', 'D', 'E'] as const) {
+  for (const scenario of ['A', 'B', 'C', 'D', 'E', 'F'] as const) {
     await prisma.groupMembership.create({
       data: { groupId: group.id, userId: userId(scenario), addedById: userId('DOCENTE') },
     });

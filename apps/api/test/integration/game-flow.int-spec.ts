@@ -1,9 +1,9 @@
-import { arithmeticWorld, syncWorldCatalog, WorldsRepository } from '../../src/modules/worlds';
+import { ALL_WORLDS, syncWorldCatalog, WorldsRepository } from '../../src/modules/worlds';
+import { CLASSIC_SOLUTIONS, RULE_7X1, RULE_NO_2, RULE_NO_5 } from '../helpers/scripted-planner';
 import { createTestApp, Player, TestContext } from '../helpers/test-app';
 
-const REF = arithmeticWorld.challenges.map((c) => c.referenceSolution); // válidas con TODAS las reglas
-const RULE_NO_2 = 'arithmetic.forbidden-digit-2';
-const RULE_7X1 = 'arithmetic.required-7-times-1';
+// El Mundo 1 juega aquí la secuencia clásica (planificador de pruebas): valores exactos conocidos.
+const REF = CLASSIC_SOLUTIONS; // válidas con TODAS las reglas de la secuencia
 
 describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
   let ctx: TestContext;
@@ -29,11 +29,21 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
   const ruleKeys = (body: { unlockedRules: { key: string }[] }) => body.unlockedRules.map((r) => r.key);
 
   describe('mundos y sesiones', () => {
-    it('lista los mundos disponibles y responde 404 ante uno inexistente', async () => {
+    it('lista los cinco mundos en orden y responde 404 ante uno inexistente', async () => {
       const res = await ana.get('/worlds').expect(200);
-      expect(res.body).toEqual([
-        expect.objectContaining({ slug: 'arithmetic', name: 'Aritmética', position: 1, challengeCount: 4 }),
-      ]);
+      expect(res.body.map((w: { slug: string }) => w.slug)).toEqual(ALL_WORLDS.map((w) => w.slug));
+      expect(res.body.map((w: { position: number }) => w.position)).toEqual([1, 2, 3, 4, 5]);
+      expect(res.body[0]).toMatchObject({
+        slug: 'arithmetic',
+        name: 'Aritmética',
+        position: 1,
+        challengeCount: 4,
+        syntax: { decimals: false, powers: false },
+      });
+      for (const world of res.body) {
+        expect(world.ruleCount).toBeGreaterThanOrEqual(world.challengeCount - 1);
+        expect(world.concepts.length).toBeGreaterThan(0);
+      }
       await ana.post('/worlds/no-existe/sessions').expect(404);
       await ana.get('/worlds/no-existe/progress').expect(404);
     });
@@ -56,17 +66,22 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       expect(await ctx.prisma.studentWorldProgress.count()).toBe(1);
     });
 
-    it('nunca sirve un mundo cuyo catálogo tenga un reto irresoluble', async () => {
-      const challenge = await ctx.prisma.challenge.findFirstOrThrow({ where: { key: 'arithmetic-001' } });
-      // "21" no cumple las reglas del mundo (contiene el 2): el reto dejaría de ser resoluble.
-      await ctx.prisma.challenge.update({ where: { id: challenge.id }, data: { referenceSolution: '21' } });
+    it('nunca sirve un mundo cuyas reglas del catálogo no estén sembradas en la BD (500 sin detalles)', async () => {
+      await ctx.prisma.rule.delete({
+        where: {
+          worldId_key: {
+            worldId: (await ctx.prisma.world.findUniqueOrThrow({ where: { slug: 'arithmetic' } })).id,
+            key: RULE_NO_5,
+          },
+        },
+      });
       ctx.app.get(WorldsRepository).clearCache();
       try {
         const res = await ana.post('/worlds/arithmetic/sessions');
         expect(res.status).toBe(500);
         expect(res.body.message).toBe('Error interno del servidor.'); // sin filtrar detalles internos
       } finally {
-        await syncWorldCatalog(ctx.prisma, [arithmeticWorld]);
+        await syncWorldCatalog(ctx.prisma, ALL_WORLDS);
         ctx.app.get(WorldsRepository).clearCache();
       }
       await ana.post('/worlds/arithmetic/sessions').expect(201);
@@ -83,6 +98,12 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
         unlockedRules: [],
         activeSessionId: null,
         pendingAttemptId: null,
+        unlocked: true,
+        unlockRequirement: null,
+        completionsCount: 0,
+        firstCompletedAt: null,
+        activeSequence: null,
+        challengeCount: 4,
       });
       expect(await ctx.prisma.studentWorldProgress.count()).toBe(0);
     });
@@ -108,7 +129,12 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       expect(res.body).toMatchObject({
         position: 1,
         challengeCount: 4,
+        statementKind: 'EXPRESSION',
         expression: '3 * 7',
+        instruction: 'Escribe una expresión que valga lo mismo que la operación.',
+        syntax: { decimals: false, powers: false },
+        difficulty: 'BASELINE',
+        sequenceId: expect.any(String),
         rules: [],
         newRule: null,
         timeLimitSeconds: 60,
@@ -170,7 +196,14 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       });
 
       const c2 = await ana.play(sessionId, '41 + 1');
-      expect(c2.started).toMatchObject({ position: 2, expression: '3 * 7 * 2', timeLimitSeconds: 60 });
+      expect(c2.started).toMatchObject({
+        position: 2,
+        expression: '3 * 7 * 2',
+        timeLimitSeconds: 60,
+        sequenceId: c1.started.sequenceId, // la misma secuencia
+        instruction:
+          'Escribe una expresión que valga lo mismo que la operación y que cumpla todas las reglas activas.',
+      });
       expect(c2.started.newRule).toMatchObject({ key: RULE_NO_2, type: 'FORBIDDEN_DIGIT' });
       expect(c2.answered.unlockedRule).toMatchObject({ key: RULE_NO_2 });
       expect(c2.answered.score).toMatchObject({ multiplier: '1.5', points: 150 });
@@ -182,6 +215,11 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       expect(c3.answered.score).toMatchObject({ multiplier: '2', points: 200 });
       expect(ruleKeys(c3.answered.progress)).toEqual([RULE_NO_2, RULE_7X1]);
       expect(c3.answered.progress).toMatchObject({ streak: 3, totalPoints: 450 });
+      expect(c3.answered.progress.activeSequence).toMatchObject({
+        difficulty: 'BASELINE',
+        challengeCount: 4,
+        rules: [{ key: RULE_NO_2 }, { key: RULE_7X1 }],
+      });
 
       const c4 = await ana.play(sessionId, REF[3]);
       expect(c4.started.timeLimitSeconds).toBe(90); // 3 reglas activas
@@ -200,6 +238,8 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
         evaluatedValue: '42',
         sequenceRestarted: true,
         unlockedRule: null,
+        discardedRules: [{ key: RULE_NO_2 }],
+        nextWorldUnlocked: null,
       });
       expect(answered.violations).toEqual([
         expect.objectContaining({ ruleKey: RULE_NO_2, ruleType: 'FORBIDDEN_DIGIT' }),
@@ -211,8 +251,11 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
         bestStreak: 1,
         totalPoints: 100,
       });
-      expect(ruleKeys(answered.progress)).toEqual([]); // la regla del reto fallido NO se acumula
+      expect(ruleKeys(answered.progress)).toEqual([]); // la regla del reto fallido NO se domina
+      expect(answered.progress.activeSequence).toBeNull(); // la secuencia terminó
       expect(await ledger()).toHaveLength(1); // solo el acierto del reto 1
+      const sequences = await ctx.prisma.gameSequence.findMany({ where: { userId: ana.userId } });
+      expect(sequences).toEqual([expect.objectContaining({ status: 'FAILED', endedAt: expect.any(Date) })]);
     });
 
     it.each([
@@ -233,31 +276,40 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       expect(answered.progress).toMatchObject({ currentPosition: 1, streak: 0, totalPoints: 0 });
     });
 
-    it('falla en el reto 3: conserva las reglas ya completadas, reinicia y una sesión nueva no las borra', async () => {
+    it('falla en el reto 3: descarta las reglas de la secuencia; la siguiente empieza sin reglas y conserva puntos', async () => {
       const sessionId = await openSession();
-      await ana.play(sessionId, '21');
+      const first = await ana.play(sessionId, '21');
       await ana.play(sessionId, '41 + 1');
       const failed = await ana.play(sessionId, '14 / 2'); // 7 correcto, pero sin 7 * 1
       expect(failed.answered).toMatchObject({ outcome: 'INCORRECT', failureReason: 'RULE_VIOLATION' });
       expect(failed.answered.progress).toMatchObject({ currentPosition: 1, streak: 0, totalPoints: 250 });
+      // Las DOS reglas activas de la secuencia se descartan (la superada y la nueva)…
+      expect(failed.answered.discardedRules.map((r: { key: string }) => r.key)).toEqual([
+        RULE_NO_2,
+        RULE_7X1,
+      ]);
+      // …pero la superada queda en la colección de reglas dominadas.
       expect(ruleKeys(failed.answered.progress)).toEqual([RULE_NO_2]);
 
-      // Reiniciar la SECUENCIA ≠ borrar el progreso: la nueva sesión conserva reglas y puntos.
+      // La nueva sesión no recupera reglas activas: empieza una secuencia nueva desde cero.
       await ana.post(`/sessions/${sessionId}/end`).expect(200);
       const next = await ana.startSession().expect(201);
       expect(next.body.session.id).not.toBe(sessionId);
 
-      const rules = await ana.get('/worlds/arithmetic/rules').expect(200);
-      expect(rules.body.map((r: { key: string }) => r.key)).toEqual([RULE_NO_2]);
-
       const replay = await ana.startAttempt(next.body.session.id).expect(201);
-      expect(replay.body).toMatchObject({ position: 1, newRule: null });
-      expect(replay.body.rules.map((r: { key: string }) => r.key)).toEqual([RULE_NO_2]);
-      expect(replay.body.timeLimitSeconds).toBe(60);
+      expect(replay.body).toMatchObject({ position: 1, newRule: null, rules: [], timeLimitSeconds: 60 });
+      expect(replay.body.sequenceId).not.toBe(first.started.sequenceId);
 
-      // "21" fue válido la primera vez, pero la regla acumulada ahora lo prohíbe.
+      // "21" vuelve a ser válido: las reglas de la secuencia fallida ya no existen.
       const retry = await ana.answer(replay.body.attemptId, '21').expect(200);
-      expect(retry.body).toMatchObject({ outcome: 'INCORRECT', failureReason: 'RULE_VIOLATION' });
+      expect(retry.body).toMatchObject({ outcome: 'CORRECT' });
+
+      const sequences = await ctx.prisma.gameSequence.findMany({
+        where: { userId: ana.userId },
+        orderBy: { startedAt: 'asc' },
+      });
+      expect(sequences.map((q) => q.status)).toEqual(['FAILED', 'ACTIVE']);
+      expect(new Set(sequences.map((q) => q.seed)).size).toBe(2); // cada secuencia con su semilla
     });
   });
 
@@ -268,7 +320,7 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       expect(answered.outcome).toBe('CORRECT');
     });
 
-    it('responder tarde (aunque sea correcto) es TIMEOUT: sin puntos, racha a 0, reglas conservadas', async () => {
+    it('responder tarde (aunque sea correcto) es TIMEOUT: sin puntos, racha a 0, reglas de la secuencia descartadas', async () => {
       const sessionId = await openSession();
       await ana.play(sessionId, '21');
       await ana.play(sessionId, '41 + 1'); // reglas: [no-2], racha 2, 250 puntos
@@ -280,9 +332,15 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
         evaluatedValue: null,
         sequenceRestarted: true,
         score: { points: 0 },
+        discardedRules: [{ key: RULE_NO_2 }, { key: RULE_7X1 }],
       });
-      expect(answered.progress).toMatchObject({ currentPosition: 1, streak: 0, totalPoints: 250 });
-      expect(ruleKeys(answered.progress)).toEqual([RULE_NO_2]);
+      expect(answered.progress).toMatchObject({
+        currentPosition: 1,
+        streak: 0,
+        totalPoints: 250,
+        activeSequence: null,
+      });
+      expect(ruleKeys(answered.progress)).toEqual([RULE_NO_2]); // dominada; ya no activa
 
       const history = await ana.get('/worlds/arithmetic/attempts').expect(200);
       expect(history.body.items[0]).toMatchObject({
@@ -417,7 +475,9 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
         sessionId: row.sessionId,
         userId: row.userId,
         worldId: row.worldId,
-        challengeId: row.challengeId,
+        sequenceChallengeId: row.sequenceChallengeId,
+        position: row.position,
+        expression: row.expression,
         activeRuleKeys: row.activeRuleKeys,
         activeRulesCount: row.activeRulesCount,
         timeLimitSeconds: row.timeLimitSeconds,
@@ -468,29 +528,26 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
     });
 
     it('las rachas, reglas y puntos son independientes por mundo', async () => {
-      const worldB = { ...arithmeticWorld, slug: 'arithmetic-b', name: 'Aritmética B', position: 2 };
-      await syncWorldCatalog(ctx.prisma, [worldB]);
-      try {
-        const a = await openSession(ana, 'arithmetic');
-        await ana.play(a, '21');
-        await ana.play(a, '41 + 1'); // mundo A: racha 2, regla del 2
+      await ana.completeWorld('arithmetic'); // desbloquea el Mundo 2 — racha 4, 700 puntos en el Mundo 1
+      const a = await openSession(ana, 'arithmetic');
+      await ana.play(a, REF[0]);
 
-        const b = await openSession(ana, 'arithmetic-b');
-        const progressB = (await ana.get('/worlds/arithmetic-b/progress').expect(200)).body;
-        expect(progressB).toMatchObject({ streak: 0, totalPoints: 0, currentPosition: 1, unlockedRules: [] });
+      const b = await openSession(ana, 'signs');
+      const progressB = (await ana.get('/worlds/signs/progress').expect(200)).body;
+      expect(progressB).toMatchObject({ streak: 0, totalPoints: 0, currentPosition: 1, unlockedRules: [] });
 
-        const failB = await ana.play(b, '22'); // falla en B
-        expect(failB.answered.outcome).toBe('INCORRECT');
+      const startedB = await ana.startAttempt(b).expect(201);
+      const failB = await ana.answer(
+        startedB.body.attemptId,
+        await ana.wrongAnswerFor(startedB.body.attemptId),
+      );
+      expect(failB.body.outcome).toBe('INCORRECT');
 
-        const all = (await ana.get('/progress').expect(200)).body;
-        const byWorld = Object.fromEntries(all.map((p: { worldSlug: string }) => [p.worldSlug, p]));
-        expect(byWorld['arithmetic']).toMatchObject({ streak: 2, totalPoints: 250, currentPosition: 3 });
-        expect(ruleKeys(byWorld['arithmetic'])).toEqual([RULE_NO_2]);
-        expect(byWorld['arithmetic-b']).toMatchObject({ streak: 0, totalPoints: 0, currentPosition: 1 });
-      } finally {
-        await ctx.reset();
-        await ctx.prisma.world.delete({ where: { slug: 'arithmetic-b' } });
-      }
+      const all = (await ana.get('/progress').expect(200)).body;
+      const byWorld = Object.fromEntries(all.map((p: { worldSlug: string }) => [p.worldSlug, p]));
+      expect(byWorld['arithmetic']).toMatchObject({ streak: 5, totalPoints: 1000, currentPosition: 2 });
+      expect(ruleKeys(byWorld['arithmetic'])).toEqual([RULE_NO_2, RULE_7X1, RULE_NO_5]);
+      expect(byWorld['signs']).toMatchObject({ streak: 0, totalPoints: 0, currentPosition: 1 });
     });
   });
 
@@ -511,7 +568,18 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       expect(points).toEqual([100, 150, 200, 250]);
       expect(last?.answered).toMatchObject({
         worldCompleted: true,
-        progress: { status: 'COMPLETED', totalPoints: 700 },
+        // La primera compleción desbloquea el Mundo 2.
+        nextWorldUnlocked: { slug: 'signs', position: 2 },
+        progress: {
+          status: 'COMPLETED',
+          totalPoints: 700,
+          completionsCount: 1,
+          firstCompletedAt: expect.any(String),
+        },
+      });
+      expect((await ana.get('/worlds/signs/progress').expect(200)).body).toMatchObject({
+        unlocked: true,
+        unlockRequirement: null,
       });
 
       // La sesión terminó al completar el mundo; no se pueden iniciar más retos en ella.
@@ -524,7 +592,9 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
         sessionId = res.body.session.id;
         const progress = (await ana.get('/worlds/arithmetic/progress')).body;
         expect(progress).toMatchObject({ status: 'IN_PROGRESS', currentPosition: 1, streak: 4 + run * 4 });
-        expect(ruleKeys(progress)).toEqual([RULE_NO_2, RULE_7X1, 'arithmetic.forbidden-digit-5']);
+        // Dominadas: las tres. Activas al empezar la nueva secuencia: ninguna.
+        expect(ruleKeys(progress)).toEqual([RULE_NO_2, RULE_7X1, RULE_NO_5]);
+        expect(progress.completionsCount).toBe(run + 1);
 
         for (const answer of REF) {
           last = await ana.play(sessionId, answer);
@@ -532,6 +602,7 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
           multipliers.push(last.answered.score.multiplier);
           points.push(last.answered.score.points);
         }
+        expect(last?.answered).toMatchObject({ worldCompleted: true, nextWorldUnlocked: null }); // ya estaba
       }
 
       expect(multipliers).toEqual(['1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '5', '5', '5']);

@@ -8,13 +8,13 @@ import {
   resetDemoData,
   seedDemoData,
 } from '../../prisma/demo/demo-fixtures';
+import { ALL_WORLDS } from '../../src/modules/worlds';
 import { createTestApp, Player, TestContext } from '../helpers/test-app';
 
-const RULE_NO_2 = 'arithmetic.forbidden-digit-2';
-const RULE_7X1 = 'arithmetic.required-7-times-1';
-const RULE_NO_5 = 'arithmetic.forbidden-digit-5';
-
 const keys = (rules: { key: string }[]) => rules.map((rule) => rule.key);
+const [W1, W2, W3, W4, W5] = ALL_WORLDS;
+/** Tiempo límite de un reto del Mundo 1 con `rules` reglas activas. */
+const limitW1 = (rules: number) => 60 + Math.max(0, rules - 1) * 15 + W1.sequence.extraTimeSeconds;
 
 describe('Datos de demostración (fixtures reproducibles)', () => {
   let ctx: TestContext;
@@ -24,6 +24,8 @@ describe('Datos de demostración (fixtures reproducibles)', () => {
     DEMO_ACCOUNTS.find((account) => account.scenario === scenario)!.email;
   const loginAs = (scenario: DemoScenarioId | 'DOCENTE') =>
     Player.login(ctx, emailOf(scenario), DEFAULT_DEMO_PASSWORD);
+  const progressOf = async (player: Player, world = W1.slug) =>
+    (await player.get(`/worlds/${world}/progress`).expect(200)).body;
 
   beforeAll(async () => {
     ctx = await createTestApp();
@@ -35,10 +37,9 @@ describe('Datos de demostración (fixtures reproducibles)', () => {
   });
 
   describe('escenarios jugables a través de la API real', () => {
-    it('A · jugador nuevo: sin progreso, puntos ni racha; el reto 1 sale sin reglas', async () => {
+    it('A · jugador nuevo: sin progreso; solo el Mundo 1 desbloqueado; el reto 1 sale sin reglas', async () => {
       const player = await loginAs('A');
-      const progress = await player.get('/worlds/arithmetic/progress').expect(200);
-      expect(progress.body).toMatchObject({
+      expect(await progressOf(player)).toMatchObject({
         status: 'IN_PROGRESS',
         currentPosition: 1,
         streak: 0,
@@ -47,8 +48,16 @@ describe('Datos de demostración (fixtures reproducibles)', () => {
         nextMultiplier: '1',
         unlockedRules: [],
         activeSessionId: null,
+        activeSequence: null,
+        unlocked: true,
         statistics: { attemptsCount: 0 },
       });
+      expect(await progressOf(player, W2.slug)).toMatchObject({
+        unlocked: false,
+        unlockRequirement: { worldSlug: W1.slug, position: 1 },
+      });
+      const locked = await player.startSession(W2.slug).expect(403);
+      expect(locked.body.message).toMatch(/Completa el Mundo 1/);
 
       const session = await player.startSession().expect(201);
       const attempt = await player.startAttempt(session.body.session.id).expect(201);
@@ -56,24 +65,29 @@ describe('Datos de demostración (fixtures reproducibles)', () => {
       expect(session.body.expiredAttempt).toBeNull();
     });
 
-    it('B · progreso: 450 puntos, racha 3, 2 reglas; el reto 4 revela la tercera como nueva', async () => {
+    it('B · progreso: 450 puntos, racha 3, 2 reglas dominadas; el reto 4 revela la tercera como nueva', async () => {
       const player = await loginAs('B');
-      const progress = await player.get('/worlds/arithmetic/progress').expect(200);
-      expect(progress.body).toMatchObject({
+      const progress = await progressOf(player);
+      expect(progress).toMatchObject({
         status: 'IN_PROGRESS',
         currentPosition: 4,
         streak: 3,
         bestStreak: 3,
         totalPoints: 450,
         nextMultiplier: '2.5',
+        challengeCount: 4,
+        activeSequence: { difficulty: 'BASELINE', challengeCount: 4 },
         statistics: { attemptsCount: 3, correctCount: 3, incorrectCount: 0, timeoutCount: 0 },
       });
-      expect(keys(progress.body.unlockedRules)).toEqual([RULE_NO_2, RULE_7X1]);
+      expect(progress.unlockedRules).toHaveLength(2);
+      expect(keys(progress.activeSequence.rules)).toEqual(keys(progress.unlockedRules));
 
       const session = await player.startSession().expect(200); // reanuda la sesión abierta del fixture
       const attempt = await player.startAttempt(session.body.session.id).expect(201);
-      expect(attempt.body).toMatchObject({ position: 4, newRule: { key: RULE_NO_5 }, timeLimitSeconds: 90 });
-      expect(keys(attempt.body.rules)).toEqual([RULE_NO_2, RULE_7X1, RULE_NO_5]);
+      expect(attempt.body).toMatchObject({ position: 4, timeLimitSeconds: limitW1(3) });
+      expect(attempt.body.rules).toHaveLength(3);
+      expect(keys(attempt.body.rules).slice(0, 2)).toEqual(keys(progress.activeSequence.rules));
+      expect(attempt.body.newRule.key).toBe(attempt.body.rules[2].key);
 
       const ledger = await ctx.prisma.scoreTransaction.findMany({
         where: { userId: player.userId },
@@ -82,100 +96,143 @@ describe('Datos de demostración (fixtures reproducibles)', () => {
       expect(ledger.map((row) => row.points)).toEqual([100, 150, 200]); // multiplicador creciente
     });
 
-    it('C · secuencia fallida: racha 0, puntos históricos y reglas conservados, reinicio con reglas activas', async () => {
+    it('C · secuencia fallida: racha 0, puntos conservados, reglas descartadas; la siguiente secuencia es nueva', async () => {
       const player = await loginAs('C');
-      const progress = await player.get('/worlds/arithmetic/progress').expect(200);
-      expect(progress.body).toMatchObject({
+      const progress = await progressOf(player);
+      expect(progress).toMatchObject({
         currentPosition: 1,
         streak: 0,
         bestStreak: 3,
         totalPoints: 450,
         nextMultiplier: '1',
+        activeSequence: null,
         statistics: { attemptsCount: 4, correctCount: 3, incorrectCount: 1, timeoutCount: 0 },
       });
-      expect(keys(progress.body.unlockedRules)).toEqual([RULE_NO_2, RULE_7X1]); // la del reto fallido NO se acumuló
-      // `5 * 8` vale 40 (correcto) pero usa el 5 prohibido y no contiene `7 * 1`: se informan las dos reglas rotas.
-      expect(progress.body.statistics.ruleViolationCounts).toEqual({ [RULE_NO_5]: 1, [RULE_7X1]: 1 });
+      expect(progress.unlockedRules).toHaveLength(2); // la del reto fallido NO se domina
+      expect(Object.values(progress.statistics.ruleViolationCounts).length).toBeGreaterThan(0);
 
-      const history = await player.get('/worlds/arithmetic/attempts').expect(200);
+      const history = await player.get(`/worlds/${W1.slug}/attempts`).expect(200);
       expect(history.body.items[0]).toMatchObject({ outcome: 'INCORRECT', failureReason: 'RULE_VIOLATION' });
+      const failedSequence = await ctx.prisma.gameSequence.findFirstOrThrow({
+        where: { userId: player.userId },
+      });
+      expect(failedSequence.status).toBe('FAILED');
 
-      // Reiniciar la secuencia: reto 1 pero con las reglas ya desbloqueadas activas desde el principio.
+      // Nueva secuencia: reto 1 sin reglas activas y otro sorteo.
       const session = await player.startSession().expect(200);
       const attempt = await player.startAttempt(session.body.session.id).expect(201);
-      expect(attempt.body).toMatchObject({ position: 1, newRule: null, timeLimitSeconds: 75 });
-      expect(keys(attempt.body.rules)).toEqual([RULE_NO_2, RULE_7X1]);
+      expect(attempt.body).toMatchObject({
+        position: 1,
+        newRule: null,
+        rules: [],
+        timeLimitSeconds: limitW1(0),
+      });
+      expect(attempt.body.sequenceId).not.toBe(failedSequence.id);
     });
 
-    it('D · avanzado: mundo completado dos veces, racha 8, ×5 en el próximo acierto y puntos 2 200', async () => {
+    it('D · avanzado: Mundo 1 dos veces (racha 9, 2 700 pts, ×5) y Mundo 2 completado → Mundo 3 desbloqueado', async () => {
       const player = await loginAs('D');
-      const progress = await player.get('/worlds/arithmetic/progress').expect(200);
-      expect(progress.body).toMatchObject({
+      expect(await progressOf(player)).toMatchObject({
         status: 'COMPLETED',
-        streak: 8,
-        bestStreak: 8,
-        totalPoints: 2200,
+        streak: 9,
+        bestStreak: 9,
+        totalPoints: 2700,
         nextMultiplier: '5', // tope
+        completionsCount: 2,
         activeSessionId: null,
-        statistics: { attemptsCount: 8, correctCount: 8, incorrectCount: 0 },
+        statistics: { attemptsCount: 9, correctCount: 9, incorrectCount: 0 },
       });
-      expect(keys(progress.body.unlockedRules)).toEqual([RULE_NO_2, RULE_7X1, RULE_NO_5]);
+      // La política adaptativa subió la dificultad en la segunda secuencia (ya había completado el mundo con racha).
+      const sequences = await ctx.prisma.gameSequence.findMany({
+        where: { userId: player.userId, world: { slug: W1.slug } },
+        orderBy: { startedAt: 'asc' },
+      });
+      expect(sequences.map((q) => [q.difficulty, q.ruleKeys.length, q.status])).toEqual([
+        ['BASELINE', W1.sequence.ruleCount.BASELINE, 'COMPLETED'],
+        ['HARDER', W1.sequence.ruleCount.HARDER, 'COMPLETED'],
+      ]);
+      expect(await progressOf(player, W2.slug)).toMatchObject({
+        completionsCount: 1,
+        totalPoints: 700,
+        unlocked: true,
+      });
+      expect(await progressOf(player, W3.slug)).toMatchObject({ unlocked: true, completionsCount: 0 });
+      expect(await progressOf(player, W4.slug)).toMatchObject({
+        unlocked: false,
+        unlockRequirement: { worldSlug: W3.slug },
+      });
 
-      // «Jugar de nuevo»: nueva sesión con las 3 reglas activas desde el reto 1 y racha conservada.
+      // «Jugar de nuevo»: secuencia nueva desde el reto 1 sin reglas; racha conservada, el acierto vale ×5.
       const session = await player.startSession().expect(201);
       const attempt = await player.startAttempt(session.body.session.id).expect(201);
-      expect(attempt.body).toMatchObject({ position: 1, newRule: null, timeLimitSeconds: 90 });
-      expect(keys(attempt.body.rules)).toEqual([RULE_NO_2, RULE_7X1, RULE_NO_5]);
-
-      const answered = await player.answer(attempt.body.attemptId, '7 * 1 * 3').expect(200);
+      expect(attempt.body).toMatchObject({ position: 1, newRule: null, rules: [] });
+      const answered = await player
+        .answer(attempt.body.attemptId, await player.solutionFor(attempt.body.attemptId))
+        .expect(200);
       expect(answered.body.score).toMatchObject({ multiplier: '5', points: 500 });
-      expect(answered.body.progress).toMatchObject({ streak: 9, totalPoints: 2700, nextMultiplier: '5' });
+      expect(answered.body.progress).toMatchObject({ streak: 10, totalPoints: 3200, nextMultiplier: '5' });
     });
 
-    it('E · reto expirado: al entrar el servidor lo cierra por TIMEOUT y se puede reiniciar la secuencia', async () => {
+    it('E · reto expirado: al entrar el servidor lo cierra por TIMEOUT y la próxima secuencia empieza de cero', async () => {
       const player = await loginAs('E');
       const session = await player.startSession().expect(200); // sesión abierta del fixture
-      expect(session.body.expiredAttempt).toEqual({
-        attemptId: expect.any(String),
-        outcome: 'TIMEOUT',
-      });
+      expect(session.body.expiredAttempt).toEqual({ attemptId: expect.any(String), outcome: 'TIMEOUT' });
 
-      const progress = await player.get('/worlds/arithmetic/progress').expect(200);
-      expect(progress.body).toMatchObject({
+      const progress = await progressOf(player);
+      expect(progress).toMatchObject({
         currentPosition: 1,
         streak: 0,
         bestStreak: 2,
         totalPoints: 250,
         pendingAttemptId: null,
+        activeSequence: null,
         statistics: { attemptsCount: 3, correctCount: 2, incorrectCount: 0, timeoutCount: 1 },
       });
-      expect(keys(progress.body.unlockedRules)).toEqual([RULE_NO_2]);
+      expect(progress.unlockedRules).toHaveLength(1);
 
-      const history = await player.get('/worlds/arithmetic/attempts').expect(200);
+      const history = await player.get(`/worlds/${W1.slug}/attempts`).expect(200);
       expect(history.body.items[0]).toMatchObject({ outcome: 'TIMEOUT', pointsAwarded: 0 });
 
       const attempt = await player.startAttempt(session.body.session.id).expect(201);
-      expect(attempt.body).toMatchObject({ position: 1, newRule: null, expiredAttempt: null });
-      expect(keys(attempt.body.rules)).toEqual([RULE_NO_2]);
+      expect(attempt.body).toMatchObject({ position: 1, newRule: null, expiredAttempt: null, rules: [] });
     });
 
     it('el reto expirado también se detecta si se consulta "current" antes de iniciar la sesión', async () => {
       const player = await loginAs('E');
       const open = await ctx.prisma.gameSession.findFirstOrThrow({ where: { userId: player.userId } });
       await player.get(`/sessions/${open.id}/attempts/current`).expect(404); // cerrado por el servidor
-      const progress = await player.get('/worlds/arithmetic/progress').expect(200);
-      expect(progress.body.statistics.timeoutCount).toBe(1);
+      expect((await progressOf(player)).statistics.timeoutCount).toBe(1);
     });
 
-    it('el docente demo ve el grupo y la clasificación incluye a los 5 estudiantes demo', async () => {
+    it('F · explorador: Mundos 1–4 completados; el Mundo 5 está desbloqueado y se juega con su sintaxis', async () => {
+      const player = await loginAs('F');
+      for (const world of [W1, W2, W3, W4]) {
+        expect(await progressOf(player, world.slug)).toMatchObject({
+          status: 'COMPLETED',
+          completionsCount: 1,
+          totalPoints: 700,
+        });
+      }
+      expect(await progressOf(player, W5.slug)).toMatchObject({ unlocked: true, unlockRequirement: null });
+
+      const session = await player.startSession(W5.slug).expect(201);
+      const attempt = await player.startAttempt(session.body.session.id).expect(201);
+      expect(attempt.body).toMatchObject({
+        worldSlug: W5.slug,
+        position: 1,
+        syntax: { decimals: W5.syntax.decimals, powers: W5.syntax.powers },
+      });
+    });
+
+    it('el docente demo ve el grupo y la clasificación incluye a los 6 estudiantes demo', async () => {
       const teacher = await loginAs('DOCENTE');
       const dashboard = await teacher.get('/teacher/dashboard').expect(200);
       expect(dashboard.body.groups).toHaveLength(1);
       expect(dashboard.body.groups[0].group.name).toBe(DEMO_GROUP_NAME);
 
-      const board = await (await loginAs('D')).get('/worlds/arithmetic/leaderboard').expect(200);
-      expect(board.body).toMatchObject({ scope: 'GROUPS', participants: 5 });
-      expect(board.body.entries[0]).toMatchObject({ rank: 1, points: 2200, isCurrentUser: true });
+      const board = await (await loginAs('D')).get(`/worlds/${W1.slug}/leaderboard`).expect(200);
+      expect(board.body).toMatchObject({ scope: 'GROUPS', participants: 6 });
+      expect(board.body.entries[0]).toMatchObject({ rank: 1, points: 2700, isCurrentUser: true });
     });
   });
 
@@ -184,21 +241,39 @@ describe('Datos de demostración (fixtures reproducibles)', () => {
       const result: Record<string, unknown> = {};
       for (const account of DEMO_ACCOUNTS.filter((item) => item.role === 'STUDENT')) {
         const player = await Player.login(ctx, account.email, DEFAULT_DEMO_PASSWORD);
-        const { body } = await player.get('/worlds/arithmetic/progress').expect(200);
+        const all = (await player.get('/progress').expect(200)).body;
+        const sequences = await ctx.prisma.gameSequence.findMany({
+          where: { userId: player.userId },
+          orderBy: { startedAt: 'asc' },
+          include: { challenges: { orderBy: { position: 'asc' } } },
+        });
         result[account.scenario] = {
-          status: body.status,
-          position: body.currentPosition,
-          streak: body.streak,
-          best: body.bestStreak,
-          points: body.totalPoints,
-          rules: keys(body.unlockedRules),
-          stats: body.statistics,
+          progress: all.map((body: Record<string, unknown>) => ({
+            world: body.worldSlug,
+            status: body.status,
+            position: body.currentPosition,
+            streak: body.streak,
+            best: body.bestStreak,
+            points: body.totalPoints,
+            completions: body.completionsCount,
+            unlocked: body.unlocked,
+            rules: keys(body.unlockedRules as { key: string }[]),
+            stats: body.statistics,
+          })),
+          // Mismas semillas ⇒ mismos sorteos y mismos retos.
+          sequences: sequences.map((q) => ({
+            seed: q.seed,
+            difficulty: q.difficulty,
+            rules: q.ruleKeys,
+            status: q.status,
+            challenges: q.challenges.map((c) => [c.expression, c.expectedResult, c.referenceSolution]),
+          })),
         };
       }
       return result;
     };
 
-    it('volver a ejecutar el seed da exactamente el mismo estado y no duplica cuentas', async () => {
+    it('volver a ejecutar el seed da exactamente el mismo estado (y las mismas secuencias) sin duplicar cuentas', async () => {
       const first = await snapshot();
       await seed();
       expect(await snapshot()).toEqual(first);
@@ -280,8 +355,8 @@ describe('Datos de demostración (fixtures reproducibles)', () => {
       expect(await ctx.prisma.user.count()).toBe(usersBefore);
     });
 
-    it('falla con un mensaje claro si falta el catálogo del mundo', async () => {
-      const empty = { world: { findUnique: async () => null } } as unknown as PrismaClient;
+    it('falla con un mensaje claro si falta el catálogo de los mundos', async () => {
+      const empty = { world: { findMany: async () => [] } } as unknown as PrismaClient;
       await expect(seedDemoData(empty, { now: ctx.clock.now() })).rejects.toThrow(/npm run db:seed/);
     });
   });
