@@ -79,7 +79,7 @@ describe('MAX_NUMBER', () => {
     expect(accepts(ten, '-12 + 54')).toBe(false);
     expect(accepts(ten, '10.5 - 0.5')).toBe(false); // compara valores exactos
     expect(accepts(ten, '9.99 + 1')).toBe(true);
-    expect(message(ten, '6 * 12')).toBe('Ningún número puede ser mayor que 10, pero usaste el 12.');
+    expect(message(ten, '6 * 12')).toBe('No puedes escribir números mayores que 10, pero escribiste el 12.');
   });
 });
 
@@ -91,6 +91,11 @@ describe('REQUIRED_NEGATIVE', () => {
     expect(accepts(negative, '10 + (-3)')).toBe(true);
     expect(accepts(negative, '-(4 + 3)')).toBe(true);
     expect(accepts(negative, '10 - 3')).toBe(false);
+    // Un menos unario que no produce un número negativo no cuenta…
+    expect(accepts(negative, '5 + -0')).toBe(false);
+    expect(accepts(negative, '7 - (-(3 - 3))')).toBe(false);
+    // …pero sí cuenta cualquier negativo real que aparezca, aunque luego se le cambie el signo.
+    expect(accepts(negative, '-(-5)')).toBe(true);
     expect(message(negative, '7')).toContain('número negativo');
   });
 });

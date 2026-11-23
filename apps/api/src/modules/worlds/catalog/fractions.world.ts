@@ -42,7 +42,7 @@ export const fractionsWorld: WorldDefinition = {
     {
       id: 'fractions.max-number-10',
       type: 'MAX_NUMBER',
-      description: 'Ningún número puede ser mayor que 10.',
+      description: 'No escribas números mayores que 10 (el signo no cuenta: en -12 escribes un 12).',
       config: { max: 10 },
     },
   ],

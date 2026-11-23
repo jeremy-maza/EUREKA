@@ -162,7 +162,8 @@ export class ProgressionService {
     world: LoadedWorld,
     state: WorldProgressState,
     newlyUnlockedRuleKey: string | null,
-    now?: Date,
+    /** Instante del servidor (`Clock`); obligatorio si este estado puede ser la primera compleción. */
+    now: Date | null = null,
   ): Promise<void> {
     const current = await tx.studentWorldProgress.findUniqueOrThrow({
       where: { id: progressId },
@@ -178,7 +179,7 @@ export class ProgressionService {
         status: state.status,
         completionsCount: state.completionsCount,
         ...(state.completionsCount > 0 && current.firstCompletedAt === null
-          ? { firstCompletedAt: now ?? new Date() }
+          ? { firstCompletedAt: requireInstant(now) }
           : {}),
       },
     });
@@ -193,4 +194,10 @@ export class ProgressionService {
       });
     }
   }
+}
+
+function requireInstant(now: Date | null): Date {
+  if (now === null)
+    throw new Error('Se necesita el instante del servidor para registrar la primera compleción.');
+  return now;
 }

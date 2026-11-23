@@ -108,7 +108,7 @@ describe('ChallengeEngine — retos de tipo ecuación', () => {
     expect(submit('(19 - 4) / 3').isCorrect).toBe(true);
     expect(submit('4')).toMatchObject({
       failureReason: 'WRONG_RESULT',
-      message: 'Tu expresión vale 4, pero la solución de la ecuación es x = 5.',
+      message: 'Tu expresión vale 4, pero ese no es el valor de x que resuelve la ecuación.',
     });
     expect(submit('5', [rule('MIN_NUMBERS', { count: 2 })])).toMatchObject({
       failureReason: 'RULE_VIOLATION',

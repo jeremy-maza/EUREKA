@@ -99,7 +99,7 @@ describe('API del panel docente (HTTP + PostgreSQL)', () => {
         accuracyPercent: 66.7,
         averageCorrectResponseTimeMs: 7500,
         challengesCompleted: 2,
-        challengeCount: 4,
+        challengeCount: ALL_WORLDS[0].sequence.ruleCount.HARDER + 1, // posiciones posibles
       });
       expect(overview.body.totals).toMatchObject({ points: 250, attempts: 3, challengesCompleted: 2 });
       expect(overview.body.student).toEqual({ id: ana.userId, displayName: 'Ana', email: 'ana@example.com' });

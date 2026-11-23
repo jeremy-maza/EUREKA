@@ -25,6 +25,8 @@ export const maxNumberRule: RuleHandler<MaxNumberConfig> = {
   check({ max }, { expression }) {
     const limit = Fraction.of(max);
     const offending = collectNumbers(expression).find((node) => numberValue(node).compare(limit) > 0);
-    return offending ? `Ningún número puede ser mayor que ${max}, pero usaste el ${offending.text}.` : null;
+    return offending
+      ? `No puedes escribir números mayores que ${max}, pero escribiste el ${offending.text}.`
+      : null;
   },
 };

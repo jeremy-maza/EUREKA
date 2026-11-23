@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Clock } from '../../common';
 import { ChallengeAttempt, Prisma, SequenceChallenge } from '../../generated/prisma/client';
 import { DbClient, PrismaService } from '../../prisma/prisma.service';
@@ -43,6 +43,9 @@ interface Resolution {
 const TX_OPTIONS = { maxWait: 5_000, timeout: 15_000 } as const;
 const INT_MAX = 2_147_483_647;
 const ATTEMPT_INCLUDE = { sequenceChallenge: true } as const;
+/** Mensaje de un reto que el servidor retira sin culpa del jugador (catálogo actualizado o reto del catálogo antiguo). */
+export const RETIRED_ATTEMPT_MESSAGE =
+  'Este reto se retiró por una actualización del juego. Tu racha y tus puntos se conservan; empieza una secuencia nueva.';
 
 /**
  * Capa de aplicación del juego. Orquesta el motor puro (`GameEngine`) con la persistencia.
@@ -61,6 +64,8 @@ const ATTEMPT_INCLUDE = { sequenceChallenge: true } as const;
  */
 @Injectable()
 export class GameService {
+  private readonly logger = new Logger(GameService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clock: Clock,
@@ -148,6 +153,10 @@ export class GameService {
       const locked = await this.progression.lockOrCreate(tx, userId, world);
       const session = await tx.gameSession.findUniqueOrThrow({ where: { id: sessionId } });
       if (session.endedAt) throw new ConflictException('La sesión ya terminó; inicia una nueva.');
+      // Defensa en profundidad: una sesión abierta no permite saltarse el desbloqueo ni jugar un mundo deshabilitado.
+      if (!world.isEnabled)
+        throw new NotFoundException(`El mundo "${world.definition.slug}" no está disponible.`);
+      await this.unlocks.assertUnlocked(userId, world, tx);
 
       const expired = await this.settleExpired(tx, userId, world, locked.progressId);
 
@@ -227,6 +236,8 @@ export class GameService {
 
     return this.tx(async (tx) => {
       const locked = await this.progression.lockOrCreate(tx, userId, world);
+      // Un reto que ya no se puede jugar se retira (queda resuelto: la respuesta devuelve ese cierre).
+      await this.retireUnplayable(tx, userId, world, locked.progressId);
       // Releer TRAS el bloqueo: otra petición pudo resolverlo mientras esperábamos.
       const attempt = await tx.challengeAttempt.findFirstOrThrow({
         where: { id: attemptId, userId },
@@ -275,24 +286,27 @@ export class GameService {
    * transacción cuando existe un intento vencido. Es determinista e idempotente.
    */
   async settleOverdue(userId: string, world: LoadedWorld): Promise<void> {
-    const overdue = await this.prisma.challengeAttempt.findFirst({
-      where: { userId, worldId: world.id, outcome: 'PENDING', deadlineAt: { lt: this.clock.now() } },
-      select: { id: true },
+    const pending = await this.prisma.challengeAttempt.findFirst({
+      where: { userId, worldId: world.id, outcome: 'PENDING' },
+      select: { deadlineAt: true, sequenceChallengeId: true, activeRuleKeys: true },
     });
-    if (!overdue) return;
+    if (!pending) return;
+    const overdue = pending.deadlineAt.getTime() < this.clock.now().getTime();
+    if (!overdue && this.isPlayableAttempt(pending, world)) return;
     await this.tx(async (tx) => {
       const locked = await this.progression.lockOrCreate(tx, userId, world);
       await this.settleExpired(tx, userId, world, locked.progressId);
     });
   }
 
-  /** Requiere el bloqueo de progreso del jugador. */
+  /** Requiere el bloqueo de progreso del jugador. Antes retira lo que ya no se pueda jugar. */
   private async settleExpired(
     tx: DbClient,
     userId: string,
     world: LoadedWorld,
     progressId: string,
   ): Promise<ExpiredAttemptDto | null> {
+    await this.retireUnplayable(tx, userId, world, progressId);
     const pending = await tx.challengeAttempt.findFirst({
       where: { userId, worldId: world.id, outcome: 'PENDING' },
       include: ATTEMPT_INCLUDE,
@@ -315,6 +329,66 @@ export class GameService {
       now,
     });
     return { attemptId: pending.id, outcome: 'TIMEOUT' };
+  }
+
+  // ───────────────────────── Estado que ya no se puede jugar ─────────────────────────
+
+  /** Un intento abierto se puede jugar si pertenece a una secuencia generada y todas sus reglas siguen en el catálogo. */
+  private isPlayableAttempt(
+    attempt: { sequenceChallengeId: string | null; activeRuleKeys: readonly string[] },
+    world: LoadedWorld,
+  ): boolean {
+    const known = new Set(world.definition.rules.map((rule) => rule.id));
+    return attempt.sequenceChallengeId !== null && attempt.activeRuleKeys.every((key) => known.has(key));
+  }
+
+  /**
+   * Requiere el bloqueo de progreso. Retira, SIN culpa del jugador, una secuencia ACTIVE que use reglas que el catálogo
+   * ya no tiene (p. ej. una regla renombrada en un despliegue) y el intento abierto que no se pueda evaluar (de esa
+   * secuencia o del catálogo fijo antiguo). El intento queda `TIMEOUT` con un mensaje explicativo y sin efecto en racha,
+   * puntos ni estadísticas; la secuencia queda `FAILED` y el jugador vuelve al reto 1 (el siguiente reto sortea otra).
+   * Sin esto, un cambio de catálogo dejaría al jugador bloqueado con errores 500.
+   */
+  private async retireUnplayable(
+    tx: DbClient,
+    userId: string,
+    world: LoadedWorld,
+    progressId: string,
+  ): Promise<void> {
+    const known = new Set(world.definition.rules.map((rule) => rule.id));
+    const [sequence, pending] = await Promise.all([
+      tx.gameSequence.findFirst({
+        where: { userId, worldId: world.id, status: 'ACTIVE' },
+        select: { id: true, ruleKeys: true },
+      }),
+      tx.challengeAttempt.findFirst({
+        where: { userId, worldId: world.id, outcome: 'PENDING' },
+        select: { id: true, sequenceChallengeId: true, activeRuleKeys: true, timeLimitSeconds: true },
+      }),
+    ]);
+    const staleSequence = sequence !== null && sequence.ruleKeys.some((key) => !known.has(key));
+    const stalePending = pending !== null && (staleSequence || !this.isPlayableAttempt(pending, world));
+    if (!staleSequence && !stalePending) return;
+
+    if (pending && stalePending) {
+      await tx.challengeAttempt.updateMany({
+        where: { id: pending.id, outcome: 'PENDING' },
+        data: {
+          outcome: 'TIMEOUT',
+          failureReason: 'TIMEOUT',
+          elapsedMs: Math.min(pending.timeLimitSeconds * 1000, INT_MAX),
+          resultMessage: RETIRED_ATTEMPT_MESSAGE,
+        },
+      });
+    }
+    if (sequence) await this.sequences.close(tx, sequence.id, 'FAILED');
+    await tx.studentWorldProgress.updateMany({
+      where: { id: progressId, status: 'IN_PROGRESS' },
+      data: { currentPosition: 1 },
+    });
+    this.logger.warn(
+      `Retirado estado no jugable de ${userId} en "${world.definition.slug}" (secuencia ${sequence?.id ?? '—'}, intento ${pending?.id ?? '—'}).`,
+    );
   }
 
   // ───────────────────────── Persistencia atómica ─────────────────────────

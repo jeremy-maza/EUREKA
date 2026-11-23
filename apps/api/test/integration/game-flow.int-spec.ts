@@ -708,4 +708,107 @@ describe('Flujo de juego (HTTP + PostgreSQL real)', () => {
       });
     });
   });
+
+  describe('robustez: estado que ya no se puede jugar y desbloqueo', () => {
+    it('una secuencia con reglas que el catálogo ya no tiene se retira sin culpa del jugador (sin 500)', async () => {
+      const sessionId = await openSession();
+      await ana.play(sessionId, REF[0]);
+      const open = await ana.startAttempt(sessionId).expect(201); // reto 2 abierto
+      // Simula un despliegue que renombró la regla: la secuencia guardada referencia una clave inexistente.
+      await ctx.prisma.gameSequence.updateMany({
+        where: { userId: ana.userId },
+        data: { ruleKeys: ['arithmetic.removed-rule', RULE_7X1, RULE_NO_5] },
+      });
+      await ctx.prisma.challengeAttempt.update({
+        where: { id: open.body.attemptId },
+        data: { activeRuleKeys: ['arithmetic.removed-rule'] },
+      });
+
+      const progress = await ana.get('/progress').expect(200); // antes: 500 en todos los mundos
+      expect(progress.body[0]).toMatchObject({
+        currentPosition: 1,
+        streak: 1,
+        totalPoints: 100,
+        pendingAttemptId: null,
+      });
+      const next = await ana.startAttempt(sessionId).expect(201);
+      expect(next.body).toMatchObject({ position: 1, rules: [] });
+      const retired = await ana.answer(open.body.attemptId, '42').expect(200);
+      expect(retired.body).toMatchObject({ outcome: 'TIMEOUT', replayed: true });
+      expect(retired.body.message).toMatch(/actualización del juego/);
+      const statuses = await ctx.prisma.gameSequence.findMany({
+        where: { userId: ana.userId },
+        orderBy: { startedAt: 'asc' },
+      });
+      expect(statuses.map((q) => q.status)).toEqual(['FAILED', 'ACTIVE']);
+    });
+
+    it('un intento abierto del catálogo fijo antiguo se retira y el jugador puede seguir', async () => {
+      const sessionId = await openSession();
+      const started = await ana.startAttempt(sessionId).expect(201);
+      // Fila del catálogo fijo antiguo (las BD actualizadas la conservan; aquí se crea para la prueba).
+      const world = await ctx.prisma.world.findUniqueOrThrow({ where: { slug: 'arithmetic' } });
+      const legacy = await ctx.prisma.challenge.upsert({
+        where: { worldId_key: { worldId: world.id, key: 'arithmetic-001' } },
+        create: {
+          worldId: world.id,
+          key: 'arithmetic-001',
+          position: 1,
+          expression: '3 * 7',
+          expectedResult: '21',
+          referenceSolution: '7 * 1 * 3',
+        },
+        update: {},
+      });
+      await ctx.prisma.challengeAttempt.update({
+        where: { id: started.body.attemptId },
+        data: { sequenceChallengeId: null, challengeId: legacy.id },
+      });
+      await ana.get(`/sessions/${sessionId}/attempts/current`).expect(404); // retirado, sin 500
+      expect((await ana.get('/progress').expect(200)).body[0]).toMatchObject({
+        pendingAttemptId: null,
+        streak: 0,
+      });
+      const closed = await ctx.prisma.challengeAttempt.findUniqueOrThrow({
+        where: { id: started.body.attemptId },
+      });
+      expect(closed).toMatchObject({
+        outcome: 'TIMEOUT',
+        resultMessage: expect.stringMatching(/actualización/),
+      });
+      const next = await ana.startAttempt(sessionId).expect(201);
+      expect(next.body).toMatchObject({ position: 1, rules: [] });
+    });
+
+    it('startAttempt vuelve a comprobar el desbloqueo aunque la sesión ya esté abierta', async () => {
+      await ana.completeWorld('arithmetic');
+      const signs = (await ana.startSession('signs').expect(201)).body.session.id;
+      // Reparación de datos: el Mundo 1 deja de constar como completado.
+      await ctx.prisma.studentWorldProgress.updateMany({
+        where: { userId: ana.userId, world: { slug: 'arithmetic' } },
+        data: { completionsCount: 0, firstCompletedAt: null },
+      });
+      const denied = await ana.startAttempt(signs).expect(403);
+      expect(denied.body.message).toMatch(/Completa el Mundo 1/);
+    });
+
+    it('reenviar la respuesta que completó el mundo devuelve el mismo desbloqueo (idempotente)', async () => {
+      const { last } = await ana.completeWorld('arithmetic');
+      const attemptId = last.answered.attemptId;
+      const replay = await ana.answer(attemptId, await ana.solutionFor(attemptId)).expect(200);
+      expect(replay.body).toMatchObject({
+        replayed: true,
+        worldCompleted: true,
+        nextWorldUnlocked: { slug: 'signs', position: 2 },
+      });
+    });
+
+    it('un resultado erróneo no revela el valor esperado', async () => {
+      const sessionId = await openSession();
+      const { answered } = await ana.play(sessionId, '22');
+      expect(answered).toMatchObject({ outcome: 'INCORRECT', failureReason: 'WRONG_RESULT' });
+      expect(answered.message).toBe('Tu expresión vale 22, pero no es el resultado de la operación.');
+      expect(answered.message).not.toContain('21');
+    });
+  });
 });

@@ -22,7 +22,8 @@ export async function syncWorldCatalog(db: CatalogDb, worlds: readonly WorldDefi
         position: world.position,
         isEnabled: true,
       },
-      update: { name: world.name, description: world.description, position: world.position, isEnabled: true },
+      // `isEnabled` solo se fija al crear: volver a sembrar no reactiva un mundo que un operador deshabilitó.
+      update: { name: world.name, description: world.description, position: world.position },
     });
 
     for (const rule of world.rules) {

@@ -85,8 +85,8 @@ export class ChallengeEngine {
       return failure(
         'WRONG_RESULT',
         equation
-          ? `Tu expresión vale ${value}, pero la solución de la ecuación es x = ${expected}.`
-          : `Tu expresión vale ${value}, pero el resultado esperado es ${expected}.`,
+          ? `Tu expresión vale ${value}, pero ese no es el valor de x que resuelve la ecuación.`
+          : `Tu expresión vale ${value}, pero no es el resultado de la operación.`,
         common,
       );
     }

@@ -63,7 +63,7 @@ export const chaosWorld: WorldDefinition = {
     {
       id: 'chaos.max-number-12',
       type: 'MAX_NUMBER',
-      description: 'Ningún número puede ser mayor que 12.',
+      description: 'No escribas números mayores que 12 (el signo no cuenta: en -14 escribes un 14).',
       config: { max: 12 },
     },
   ],

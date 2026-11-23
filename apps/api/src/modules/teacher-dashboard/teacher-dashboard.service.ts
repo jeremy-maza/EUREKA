@@ -377,7 +377,8 @@ export class TeacherDashboardService {
       ...toMetricsDto(this.rawFor(userId, world.id, ds)),
       progressStatus: progress ? progress.status : 'NOT_STARTED',
       currentPosition: progress?.currentPosition ?? null,
-      challengeCount: world.definition.sequence.ruleCount.BASELINE + 1,
+      // Posiciones posibles (secuencia más larga): `challengesCompleted` cuenta posiciones distintas superadas.
+      challengeCount: maxSequenceLength(world),
       challengesCompleted: ds.completed.get(key(userId, world.id)) ?? 0,
       unlockedRulesCount: progress?.unlockedRulesCount ?? 0,
       currentStreak: progress?.streak ?? 0,
