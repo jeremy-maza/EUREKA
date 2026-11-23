@@ -4,8 +4,7 @@
   "private": true,
   "description": "Matemática bajo reglas — juego educativo de matemáticas con reglas acumulativas",
   "workspaces": [
-    "apps/*",
-    "frontend"
+    "apps/*"
   ],
   "engines": {
     "node": ">=22.12"
@@ -18,8 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev:api": "npm run start:dev -w apps/api",
-    "dev:web": "npm run dev -w frontend",
-    "dev:web:legacy": "npm run dev -w apps/web",
+    "dev:web": "npm run dev -w apps/web",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:generate": "npm run db:generate -w apps/api",

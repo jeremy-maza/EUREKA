@@ -1,21 +1,24 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, setUnauthorizedHandler, tokenStore } from '../../api/client';
-import type { UserProfile } from '../../api/types';
+import { api, setUnauthorizedHandler, tokenStore } from '@/shared/api/client';
+import type { UserProfile } from '@/shared/api/types';
 
-interface AuthState {
+type AuthState = {
   /** `loading` mientras se valida un token guardado; `anonymous` sin sesión. */
   status: 'loading' | 'anonymous' | 'authenticated';
   user: UserProfile | null;
-  login(email: string, password: string): Promise<void>;
+  /** `true` si el servidor rechazó el token guardado (sesión caducada o revocada). */
+  sessionExpired: boolean;
+  login: (email: string, password: string) => Promise<void>;
   /** Crea la cuenta y entra directamente. */
-  register(email: string, displayName: string, password: string): Promise<void>;
-  logout(): Promise<void>;
-}
+  register: (email: string, displayName: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+};
 
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [status, setStatus] = useState<AuthState['status']>(() =>
     tokenStore.get() ? 'loading' : 'anonymous',
   );
@@ -26,10 +29,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('anonymous');
   }, []);
 
-  useEffect(() => {
-    setUnauthorizedHandler(clear);
-    return () => setUnauthorizedHandler(null);
+  const expire = useCallback(() => {
+    clear();
+    setSessionExpired(true);
   }, [clear]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(expire);
+    return () => setUnauthorizedHandler(null);
+  }, [expire]);
 
   // Restaura la sesión al recargar la página.
   useEffect(() => {
@@ -55,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenStore.set(accessToken);
     try {
       setUser(await api.me());
+      setSessionExpired(false);
       setStatus('authenticated');
     } catch (error) {
       tokenStore.set(null);
@@ -80,12 +89,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clear]);
 
   const value = useMemo<AuthState>(
-    () => ({ status, user, login, register, logout }),
-    [status, user, login, register, logout],
+    () => ({ status, user, sessionExpired, login, register, logout }),
+    [status, user, sessionExpired, login, register, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// El hook vive junto a su proveedor a propósito (un único módulo de autenticación); solo afecta al refresco en caliente.
 // eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthState {
   const context = useContext(AuthContext);

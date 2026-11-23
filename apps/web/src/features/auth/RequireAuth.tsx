@@ -1,11 +1,13 @@
-import { Navigate, Outlet, useLocation } from 'react-router';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
+import { ScreenMessage } from '@/shared/components/ScreenMessage';
 
-/** Protege rutas: sin sesión redirige al login y vuelve a la página pedida tras entrar. */
+/** Protege las rutas privadas: sin sesión redirige al acceso; mientras se valida el token muestra una carga. */
 export function RequireAuth() {
   const { status } = useAuth();
   const location = useLocation();
-  if (status === 'loading') return <p role="status">Cargando tu sesión…</p>;
-  if (status === 'anonymous') return <Navigate to="/entrar" replace state={{ from: location.pathname }} />;
+
+  if (status === 'loading') return <ScreenMessage title="Cargando…" />;
+  if (status === 'anonymous') return <Navigate to="/acceso" replace state={{ from: location.pathname }} />;
   return <Outlet />;
 }
