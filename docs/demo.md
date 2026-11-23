@@ -6,7 +6,7 @@ Cuentas y escenarios **reproducibles** para demostrar el juego sin crear cuentas
 ## Cómo funciona
 
 - Los datos se generan **jugando contra el `GameService` real** con un reloj retrasado (intentos, libro de puntos,
-  estadísticas y reglas desbloqueadas son los que produce el juego; no hay filas escritas a mano ni respuestas
+  estadísticas, secuencias y reglas dominadas son los que produce el juego; no hay filas escritas a mano ni respuestas
   simuladas en el frontend). Código: [`apps/api/prisma/demo/`](../apps/api/prisma/demo).
 - Es **determinista**: mismas cuentas, respuestas y resultados en cada ejecución (solo cambian ids y marcas de tiempo,
   calculadas relativas al momento de ejecutar).
@@ -18,7 +18,7 @@ Cuentas y escenarios **reproducibles** para demostrar el juego sin crear cuentas
 ## Comandos
 
 ```bash
-npm run db:up && npm run db:migrate && npm run db:seed   # requisito: el catálogo del Mundo 1
+npm run db:up && npm run db:migrate && npm run db:seed   # requisito: el catálogo de los 5 mundos
 npm run db:seed:demo                                     # (re)crea las cuentas y escenarios demo
 npm run db:demo:reset                                    # elimina SOLO las cuentas demo y lo que cuelga de ellas
 ```
@@ -33,17 +33,22 @@ para «volver a empezar» tras una demostración). Contraseña de todas las cuen
 
 ## Escenarios
 
-| Esc. | Cuenta (`@demo.eureka.local`) | Estado inicial                                                                            | Qué demuestra                                                                                                |
-| ---- | ----------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| A    | `demo.a.nuevo`                | Sin progreso, 0 puntos, racha 0, 0 reglas                                                 | Jugador nuevo: el reto 1 sale sin reglas; la 1.ª regla aparece en el reto 2                                  |
-| B    | `demo.b.progreso`             | 3 aciertos: 450 pts, racha 3, 2 reglas, siguiente ×2,5; reto 4 sin empezar                | Reglas que se acumulan: el reto 4 muestra 3 reglas (la nueva resaltada) y puntos 100 → 150 → 200 → 250       |
-| C    | `demo.c.fallo`                | Falló el reto 4 (valor correcto, reglas rotas): racha 0, mejor racha 3, 450 pts, 2 reglas | Fallo: racha a 0, puntos históricos intactos; al reiniciar, el reto 1 ya trae las 2 reglas activas           |
-| D    | `demo.d.avanzado`             | Mundo 1 completado 2 veces: 2 200 pts, racha 8, 3 reglas, siguiente ×5                    | Pantalla final y «Jugar de nuevo»: 3 reglas desde el reto 1; el primer acierto vale ×5 (tope) = 500 pts      |
-| E    | `demo.e.expirado`             | Reto 3 abierto hace 12 min y sin responder (plazo vencido); 250 pts, 1 regla              | Al entrar, el servidor lo cierra por TIMEOUT: aviso «Tiempo agotado», racha 0, conserva puntos y regla       |
-| —    | `demo.docente`                | Docente del «Grupo Demo»                                                                  | Panel docente y clasificación con los 5 estudiantes demo (la clasificación solo compara compañeros de grupo) |
+Las secuencias se planifican con semillas fijas por escenario, así que qué reglas tocan (y en qué orden) es siempre lo mismo
+en cada ejecución, aunque distinto entre escenarios.
 
-Respuestas válidas con todas las reglas (para jugar los escenarios): `7 * 1 * 3`, `7 * 1 * 6`, `7 * 1`, `7 * 1 * 4 + 3 * 4`.
-Para provocar un fallo: una sintaxis inválida (`3 *`), un resultado erróneo (`22`) o una regla rota (`21 * 2`).
+| Esc. | Cuenta (`@demo.eureka.local`) | Estado inicial                                                                                     | Qué demuestra                                                                                                |
+| ---- | ----------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| A    | `demo.a.nuevo`                | Sin progreso; solo el Mundo 1 desbloqueado                                                         | Jugador nuevo: el reto 1 sale sin reglas; los mundos 2–5 aparecen bloqueados (403 si se intenta entrar)      |
+| B    | `demo.b.progreso`             | Mundo 1: 3 aciertos, 450 pts, racha 3, 2 reglas dominadas; reto 4 sin empezar                      | Reglas que se acumulan dentro de la secuencia: el reto 4 muestra 3 reglas (la nueva resaltada)               |
+| C    | `demo.c.fallo`                | Mundo 1: falló el reto 4 rompiendo reglas: racha 0, mejor racha 3, 450 pts                         | Fallo: reglas de la secuencia descartadas, puntos intactos; la siguiente secuencia sortea reglas nuevas      |
+| D    | `demo.d.avanzado`             | Mundo 1 completado 2 veces (2.ª en dificultad intensa): 2 700 pts, racha 9, ×5; Mundo 2 completado | Dificultad adaptativa, «Jugar de nuevo» (el primer acierto vale ×5 = 500 pts) y Mundo 3 desbloqueado         |
+| E    | `demo.e.expirado`             | Mundo 1: reto 3 abierto hace 12 min y sin responder (plazo vencido); 250 pts                       | Al entrar, el servidor lo cierra por TIMEOUT: aviso «Tiempo agotado», racha 0, reglas descartadas            |
+| F    | `demo.f.explorador`           | Mundos 1–4 completados (700 pts en cada uno)                                                       | Mundo 5 (Caos matemático) desbloqueado: decimales, potencias y ecuaciones mezclados                          |
+| —    | `demo.docente`                | Docente del «Grupo Demo»                                                                           | Panel docente y clasificación con los 6 estudiantes demo (la clasificación solo compara compañeros de grupo) |
+
+Para provocar un fallo: una sintaxis inválida (`3 *`), un resultado erróneo o una regla rota (desde el reto 2, enviar el
+enunciado tal cual siempre rompe alguna regla). Las soluciones de referencia están en `sequence_challenges` (solo para
+depurar: nunca se exponen por la API).
 
 > Cada escenario se «gasta» al jugarlo (cambia su progreso); ejecuta `npm run db:seed:demo` para restaurarlo.
 > El escenario E depende del tiempo: se genera ya vencido, por lo que siempre se muestra el TIMEOUT al entrar.
