@@ -1,23 +1,28 @@
-import type { AnswerResult, Rule, Violation, WorldProgress } from '@/services/api/types';
+import type { AnswerResult, Rule, Violation, WorldProgress, WorldRef } from '@/services/api/types';
 
 /**
  * Presentación de los resultados que decide el servidor. Aquí no se calcula nada del juego (puntos, multiplicador,
  * racha, reglas): solo se elige qué texto mostrar a partir de la respuesta de la API.
  */
 
-/** Lo que el servidor conserva al reiniciar la secuencia (se lee de `progress`, nunca se deduce). */
+/** Lo que el jugador conserva tras un fallo (se lee de `progress`, nunca se deduce). */
 export type KeptProgress = {
   totalPoints: number;
   streak: number;
-  unlockedRules: Rule[];
+  /** Reglas dominadas: superadas alguna vez. Un fallo no las quita. */
+  masteredRules: Rule[];
+  /** Tamaño del repertorio del mundo (para «x de N»). */
+  ruleCount: number | null;
 };
 
-/** Fin de la secuencia decidido por el servidor: respuesta incorrecta, regla violada o tiempo agotado. */
+/** Fin de la secuencia decidido por el servidor: respuesta incorrecta, regla violada, sintaxis o tiempo agotado. */
 export type Failure = {
   title: string;
   message: string;
   violations: Violation[];
-  /** Regla que introducía el reto fallido y que el servidor NO desbloqueó. */
+  /** Reglas de la secuencia que el fallo descartó: la próxima secuencia sorteará otras. */
+  discardedRules: Rule[];
+  /** Regla que introducía el reto fallido y que el jugador aún no domina. */
   lostNewRule: Rule | null;
   kept: KeptProgress;
 };
@@ -29,6 +34,7 @@ export type Success = {
   streak: number;
   unlockedRule: Rule | null;
   worldCompleted: boolean;
+  nextWorldUnlocked: WorldRef | null;
 };
 
 export const TIMEOUT_TITLE = '¡Tiempo agotado!';
@@ -59,15 +65,16 @@ export function isAnswerResult(value: unknown): value is AnswerResult {
 export const keptFrom = (progress: WorldProgress): KeptProgress => ({
   totalPoints: progress.totalPoints,
   streak: progress.streak,
-  unlockedRules: progress.unlockedRules,
+  masteredRules: progress.unlockedRules,
+  ruleCount: typeof progress.ruleCount === 'number' ? progress.ruleCount : null,
 });
 
-/** La regla nueva del reto fallido solo cuenta como "no guardada" si el servidor no la tiene desbloqueada. */
-export const isRuleUnlocked = (rule: Rule, progress: Pick<WorldProgress, 'unlockedRules'>) =>
-  progress.unlockedRules.some((unlocked) => unlocked.key === rule.key);
+/** ¿El jugador ya domina la regla? (`unlockedRules` del servidor = reglas dominadas). */
+export const isRuleMastered = (rule: Rule, progress: Pick<WorldProgress, 'unlockedRules'>) =>
+  progress.unlockedRules.some((mastered) => mastered.key === rule.key);
 
 const lostRule = (newRule: Rule | null, progress: WorldProgress) =>
-  newRule && !isRuleUnlocked(newRule, progress) ? newRule : null;
+  newRule && !isRuleMastered(newRule, progress) ? newRule : null;
 
 /**
  * Texto de un fallo. Se usa el mensaje del servidor cuando es seguro mostrarlo. La excepción es `WRONG_RESULT`: el
@@ -105,21 +112,30 @@ function failureText(result: AnswerResult): { title: string; message: string } {
   }
 }
 
-export function describeFailure(result: AnswerResult, newRule: Rule | null): Failure {
+/**
+ * `activeRules` (las reglas del reto mostrado) solo se usa si el servidor no envía `discardedRules`: el servidor es
+ * quien decide qué se descarta.
+ */
+export function describeFailure(result: AnswerResult, newRule: Rule | null, activeRules: Rule[]): Failure {
   return {
     ...failureText(result),
     violations: Array.isArray(result.violations) ? result.violations : [],
+    discardedRules: Array.isArray(result.discardedRules) ? result.discardedRules : activeRules,
     lostNewRule: lostRule(newRule, result.progress),
     kept: keptFrom(result.progress),
   };
 }
 
-/** Tiempo agotado confirmado por lecturas del servidor (historial + progreso): no hay mensaje del servidor que mostrar. */
-export function describeTimeout(progress: WorldProgress, newRule: Rule | null): Failure {
+/**
+ * Tiempo agotado confirmado por lecturas del servidor (historial + progreso): no hay respuesta del servidor con
+ * `discardedRules`, así que se listan las reglas activas del reto que venció (las de la secuencia terminada).
+ */
+export function describeTimeout(progress: WorldProgress, newRule: Rule | null, activeRules: Rule[]): Failure {
   return {
     title: TIMEOUT_TITLE,
     message: TIMEOUT_MESSAGE,
     violations: [],
+    discardedRules: activeRules,
     lostNewRule: lostRule(newRule, progress),
     kept: keptFrom(progress),
   };
@@ -133,5 +149,6 @@ export function describeSuccess(result: AnswerResult): Success {
     streak: result.progress.streak,
     unlockedRule: result.unlockedRule ?? null,
     worldCompleted: result.worldCompleted === true,
+    nextWorldUnlocked: result.nextWorldUnlocked ?? null,
   };
 }

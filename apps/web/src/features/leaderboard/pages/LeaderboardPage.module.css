@@ -590,3 +590,38 @@
     left: 78%;
   }
 }
+
+.tabsRow {
+  margin: 0 0 16px;
+}
+
+.boardState {
+  max-width: 420px;
+  margin: 10vh auto 0;
+  padding: 22px 30px;
+  border-radius: 20px;
+  color: #385868;
+  background: rgba(255, 248, 223, 0.96);
+  box-shadow: 0 8px 0 #dfc58e;
+  text-align: center;
+}
+
+.boardState h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.boardState p {
+  margin: 8px 0 0;
+  color: #667a81;
+}
+
+.boardState button {
+  margin-top: 16px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 14px;
+  color: white;
+  background: #ff963e;
+  font-weight: 900;
+}

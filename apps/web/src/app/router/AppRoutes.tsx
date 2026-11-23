@@ -4,6 +4,7 @@ import { RequireAuth } from '@/features/auth/components/RequireAuth';
 import { RequireRole } from '@/features/auth/components/RequireRole';
 import { AuthPage } from '@/features/auth/pages/AuthPage';
 import { GamePage } from '@/features/game/pages/GamePage';
+import { PlayRedirect } from '@/features/game/pages/PlayRedirect';
 import { ResultsPage } from '@/features/game/pages/ResultsPage';
 import { HomePage } from '@/features/home/pages/HomePage';
 import { LeaderboardPage } from '@/features/leaderboard/pages/LeaderboardPage';
@@ -20,10 +21,12 @@ export function AppRoutes() {
         <Route element={<RequireAuth />}>
           <Route path="/" element={<HomePage />} />
           <Route element={<RequireRole role="STUDENT" />}>
-            <Route path="/juego" element={<GamePage />} />
-            <Route path="/final" element={<ResultsPage />} />
-            <Route path="/progreso" element={<ProgressPage />} />
-            <Route path="/clasificaciones" element={<LeaderboardPage />} />
+            <Route path="/juego" element={<PlayRedirect />} />
+            <Route path="/juego/:slug" element={<GamePage />} />
+            <Route path="/final" element={<Navigate to="/" replace />} />
+            <Route path="/final/:slug" element={<ResultsPage />} />
+            <Route path="/progreso/:slug?" element={<ProgressPage />} />
+            <Route path="/clasificaciones/:slug?" element={<LeaderboardPage />} />
           </Route>
           <Route element={<RequireRole role="TEACHER" />}>
             <Route path="/docente" element={<TeacherDashboardPage />} />

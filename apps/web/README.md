@@ -1,8 +1,9 @@
 # Frontend — Matemática bajo reglas (`apps/web`)
 
 La aplicación del juego: React 19 + TypeScript + Vite. Es el workspace de npm `@mbr/web` del monorepo y se instala y se
-verifica desde la raíz. El servidor decide todo (reto, reglas activas, plazo, puntos, racha); este frontend solo lo
-muestra y nunca calcula nada del juego.
+verifica desde la raíz. El servidor decide todo (mundos desbloqueados, secuencia y sus reglas, dificultad, reto, plazo,
+puntos, racha); este frontend solo lo muestra y nunca calcula nada del juego. El contrato HTTP está en §5.2 de
+[`EUREKA_MASTER_PLAN.md`](../../EUREKA_MASTER_PLAN.md).
 
 ## Arranque
 
@@ -48,18 +49,21 @@ src/
     router/AppRoutes.tsx  Tabla de rutas y guards (se exporta sin router para montarla en las pruebas)
   features/
     auth/                 AuthContext (sesión y token), components/ (RequireAuth, RequireRole), pages/ (acceso/registro)
-    home/                 Inicio: mundos, progreso, reglas descubiertas y estadísticas
-    game/                 Partida (GamePage), pantalla final, feedback.ts (textos de resultado) y el grillo
-    progress/             «Mi progreso» (/progreso): puntos, rachas, reglas, estadísticas e historial
-    leaderboard/          Clasificación entre compañeros de grupo (/clasificaciones)
+    home/                 Inicio = mapa de los cinco mundos (bloqueado / disponible / en curso / completado)
+    game/                 Partida por mundo (GamePage), redirección de /juego (PlayRedirect), pantalla final,
+                          feedback.ts (textos de resultado) y el grillo
+    progress/             «Mi progreso» por mundo (/progreso/:slug): puntos, rachas, reglas dominadas, historial
+    leaderboard/          Clasificación por mundo entre compañeros de grupo (/clasificaciones/:slug)
     teacher/              Panel docente (solo lectura)
   components/
     ui/                   Piezas visuales sin conocimiento de la app: Logo, ScreenMessage, FloatingIsland
-    common/               Compartidos que conocen la app: InsightsHeader (navegación según rol y sesión)
+    common/               Compartidos que conocen la app: InsightsHeader (navegación según rol y sesión),
+                          WorldTabs (selector de mundo) y DifficultyBadge («Suave / Normal / Intensa»)
   services/
     api/                  `client.ts` (fetch, errores, 401) y `types.ts` (contratos de la API, a mano)
     storage/              `token-store.ts` (token de acceso en localStorage)
-  lib/                    `worlds.ts` (slug del Mundo 1, usado por varias funcionalidades)
+  lib/                    `worlds.ts` (estado de un mundo, mundo por defecto, acentos de color, etiquetas de
+                          dificultad) y `useWorldCatalog.ts` (mundos + progreso, con reintento)
   styles/                 `global.css` (reset y variables de la identidad visual)
   assets/                 grillo/ (sprites del personaje) y backgrounds/ (fondo opcional de la partida)
   test/                   `setup.ts` y `utils.tsx` (fixtures, API simulada, `renderApp`)
@@ -79,26 +83,53 @@ Reglas de dependencia:
 
 ## Rutas
 
-| Ruta                   | Quién       | Contenido                                       |
-| ---------------------- | ----------- | ----------------------------------------------- |
-| `/acceso`, `/registro` | público     | Inicio de sesión y alta de estudiante           |
-| `/`                    | autenticado | Inicio (los docentes se redirigen a `/docente`) |
-| `/juego`, `/final`     | estudiante  | Partida y pantalla de mundo completado          |
-| `/progreso`            | estudiante  | Mi progreso                                     |
-| `/clasificaciones`     | estudiante  | Clasificación entre compañeros de grupo         |
-| `/docente`             | docente     | Panel docente                                   |
+| Ruta                      | Quién       | Contenido                                                                                        |
+| ------------------------- | ----------- | ------------------------------------------------------------------------------------------------ |
+| `/acceso`, `/registro`    | público     | Inicio de sesión y alta de estudiante                                                            |
+| `/`                       | autenticado | Mapa de mundos (los docentes se redirigen a `/docente`)                                          |
+| `/juego`                  | estudiante  | Redirige al mundo más indicado: el primero desbloqueado y sin completar; si no hay, `arithmetic` |
+| `/juego/:slug`            | estudiante  | Partida en ese mundo                                                                             |
+| `/final/:slug`            | estudiante  | Mundo completado (`/final` sin mundo vuelve a `/`)                                               |
+| `/progreso/:slug?`        | estudiante  | Mi progreso, con selector de mundo (sin slug: el mundo más indicado)                             |
+| `/clasificaciones/:slug?` | estudiante  | Clasificación por mundo, con selector de mundo                                                   |
+| `/docente`                | docente     | Panel docente                                                                                    |
 
 `RequireAuth` redirige a `/acceso` sin sesión (y avisa si el servidor rechazó un token guardado); `RequireRole` evita
-mostrar a cada rol pantallas que la API le rechazaría con 403. Cualquier otra ruta redirige a `/`.
+mostrar a cada rol pantallas que la API le rechazaría con 403. Cualquier otra ruta redirige a `/`. Un slug que no está
+en `GET /worlds` muestra «No encontramos ese mundo» con un camino de vuelta.
+
+## Comportamiento del juego (lo decide el servidor)
+
+- **Mundos y desbloqueo.** `GET /worlds` da los cinco mundos (se ordenan por `position`); `GET /progress` dice si cada
+  uno está desbloqueado (`unlocked`, `unlockRequirement`) y cuántas veces se completó (`completionsCount`). El mapa
+  solo lo refleja. Si se entra en un mundo bloqueado, el servidor responde **403** con su mensaje; la partida lo
+  muestra y ofrece ir al mundo que hay que completar.
+- **Secuencias.** Cada secuencia sortea un subconjunto y un orden de reglas y una dificultad (`EASIER/BASELINE/HARDER`
+  → «Suave / Normal / Intensa»); su longitud (`attempt.challengeCount`) varía y la ruta de islas del grillo se adapta
+  (una isla por reto más la de llegada).
+- **Fallo = reglas descartadas.** Respuesta incorrecta, regla incumplida, sintaxis inválida o tiempo agotado terminan
+  la secuencia: el diálogo lista `answer.discardedRules`, explica que la racha vuelve a 0, que **los puntos y las
+  reglas dominadas se conservan** y que la próxima secuencia sorteará reglas nuevas («Nueva secuencia»).
+- **Reglas dominadas.** `progress.unlockedRules` son las reglas superadas alguna vez (colección permanente), no las
+  activas. Se muestran como «x / ruleCount».
+- **Enunciado.** Se muestra `attempt.instruction` encima de la respuesta. `statementKind: 'EQUATION'` se presenta como
+  «Resuelve: 3 × x + 4 = 19» con el prefijo «x =» en la respuesta. Los símbolos permitidos (`attempt.syntax`) se
+  muestran como fichas; el campo no filtra nada: valida el servidor. Nunca se muestra el resultado esperado.
+- **Mundo completado.** `worldCompleted` lleva a `/final/:slug`; si `nextWorldUnlocked` viene informado se celebra y
+  se ofrece «Ir al Mundo N».
 
 ## Pruebas
 
 Vitest + Testing Library sobre jsdom. La API se simula a nivel de `fetch` con `mockApi({ 'MÉTODO /ruta': handler })`
 (`src/test/utils.tsx`); una ruta no simulada responde 599 con su nombre para que ninguna prueba pase por casualidad con
 una llamada inesperada. `renderApp('/ruta')` monta la aplicación real con sus rutas y un `data-testid="location"` con la
-ruta actual. Cubren: registro, acceso y errores, rutas protegidas por sesión y rol, sesión caducada, partida (acierto,
-reglas que se acumulan, fallo y reinicio con las reglas conservadas, tiempo agotado, conflictos 409 y errores de red/API),
-«Mi progreso», inicio, clasificación, panel docente (carga y cambio de grupo/estudiante) y el cliente HTTP.
+ruta actual. Cubren: registro, acceso y errores, rutas protegidas por sesión y rol, sesión caducada, mapa de mundos (bloqueado,
+disponible, en curso, completado), partida por slug (acierto, reglas que se acumulan, fallo con reglas descartadas y
+nueva secuencia, tiempo agotado, conflictos 409, errores de red/API, mundo bloqueado 403, mundo inexistente, ecuaciones
+y fichas de sintaxis, secuencias de longitud variable), mundo completado con desbloqueo del siguiente, redirección de
+`/juego`, «Mi progreso» y clasificación con cambio de mundo, panel docente (carga, cambio de grupo/estudiante, retos
+identificados por mundo) y el cliente HTTP. Los fixtures de los cinco mundos están en `src/test/utils.tsx`
+(`allWorlds`, `worldsProgress`, `lockedProgress`).
 
 Notas para escribir pruebas del juego:
 

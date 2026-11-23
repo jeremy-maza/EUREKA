@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  allWorlds,
   arithmeticWorld,
   attempt,
   type Handler,
@@ -14,24 +15,21 @@ import {
   sequence,
   signIn,
   student,
+  worldsProgress,
 } from '@/test/utils';
-
-const later = {
-  ...arithmeticWorld,
-  slug: 'signs',
-  name: 'Números y signos',
-  position: 2,
-  description: 'Positivos y negativos.',
-};
 
 function home(extra: Record<string, Handler> = {}) {
   return mockApi({
     'GET /users/me': () => ok(student),
-    'GET /worlds': () => ok([arithmeticWorld, later]),
-    'GET /progress': () => ok([progress()]),
+    'GET /worlds': () => ok(allWorlds),
+    'GET /progress': () => ok(worldsProgress()),
     ...extra,
   });
 }
+
+/** Tarjeta (<article>) de un mundo del mapa, por su nombre. */
+const worldCard = async (name: string) =>
+  (await screen.findByRole('heading', { name })).closest('article') as HTMLElement;
 
 beforeEach(() => signIn());
 afterEach(() => {
@@ -39,83 +37,103 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('inicio', () => {
-  it('jugador nuevo: ofrece Jugar y no muestra reglas ni estadísticas', async () => {
+describe('inicio: mapa de mundos', () => {
+  it('muestra los cinco mundos en orden de posición', async () => {
     home();
     renderApp('/');
 
-    const world = (await screen.findByRole('heading', { name: 'Aritmética' })).closest(
-      'article',
-    ) as HTMLElement;
-    expect(within(world).getByRole('button', { name: 'Jugar' })).toBeEnabled();
-    expect(within(world).queryByText('REGLAS DESCUBIERTAS')).not.toBeInTheDocument();
-    expect(within(world).queryByText('Intentos')).not.toBeInTheDocument();
+    const map = await screen.findByRole('list', { name: 'Mapa de mundos' });
+    expect(
+      within(map)
+        .getAllByRole('heading', { level: 2 })
+        .map((heading) => heading.textContent),
+    ).toEqual(['Aritmética', 'Números y signos', 'Fracciones y decimales', 'Álgebra', 'Caos matemático']);
   });
 
-  it('muestra solo los datos del servidor: puntos, racha, desafío, reglas descubiertas y estadísticas', async () => {
+  it('jugador nuevo: Mundo 1 disponible con «Jugar»; los demás bloqueados con el mundo que hay que completar', async () => {
+    home();
+    renderApp('/');
+
+    const first = await worldCard('Aritmética');
+    expect(first).toHaveAttribute('data-status', 'available');
+    expect(first).toHaveTextContent('Disponible');
+    expect(within(first).getByRole('link', { name: 'Jugar: Mundo 1' })).toHaveAttribute(
+      'href',
+      '/juego/arithmetic',
+    );
+    expect(first).toHaveTextContent('6 reglas por dominar');
+    expect(within(first).getByRole('list', { name: 'Conceptos de Aritmética' })).toHaveTextContent(
+      'Cuatro operaciones',
+    );
+
+    const second = await worldCard('Números y signos');
+    expect(second).toHaveAttribute('data-status', 'locked');
+    expect(second).toHaveTextContent('Bloqueado');
+    expect(second).toHaveTextContent('Completa el Mundo 1 (Aritmética) para desbloquear.');
+    expect(within(second).queryByRole('link')).not.toBeInTheDocument();
+
+    const chaos = await worldCard('Caos matemático');
+    expect(chaos).toHaveTextContent('Completa el Mundo 4 (Álgebra) para desbloquear.');
+  });
+
+  it('en curso: puntos, rachas, reglas dominadas x / N, posición y dificultad de la secuencia activa', async () => {
     home({
       'GET /progress': () =>
-        ok([
-          progress({
+        ok(
+          worldsProgress({
             currentPosition: 3,
             totalPoints: 450,
             streak: 3,
-            bestStreak: 3,
+            bestStreak: 4,
             unlockedRules: [{ ...rule2, unlockedAt: '2026-11-21T10:00:00.000Z' }],
-            statistics: {
-              attemptsCount: 4,
-              correctCount: 3,
-              incorrectCount: 1,
-              timeoutCount: 0,
-              averageCorrectElapsedMs: 8_200,
-              ruleViolationCounts: {},
-            },
+            activeSequence: { id: 'q1', difficulty: 'HARDER', challengeCount: 5, rules: [rule2] },
+            statistics: { ...progress().statistics, attemptsCount: 4 },
           }),
-        ]),
+        ),
     });
     renderApp('/');
 
-    const world = (await screen.findByRole('heading', { name: 'Aritmética' })).closest(
-      'article',
-    ) as HTMLElement;
+    const world = await worldCard('Aritmética');
+    expect(world).toHaveAttribute('data-status', 'in-progress');
     expect(world).toHaveTextContent(/Puntos\s*450/);
-    expect(world).toHaveTextContent(/Desafío\s*3\/4/);
-    expect(within(world).getByText(rule2.description)).toBeInTheDocument();
-    expect(world).toHaveTextContent(/Tiempo medio\s*8\.2 s/);
-    expect(within(world).getByRole('button', { name: 'Continuar' })).toBeEnabled();
+    expect(world).toHaveTextContent(/Racha\s*3/);
+    expect(world).toHaveTextContent(/Mejor racha\s*4/);
+    expect(world).toHaveTextContent(/Reglas dominadas\s*1\s*\/\s*6/);
+    expect(world).toHaveTextContent(/desafío\s*3\s*de\s*5/);
+    expect(within(world).getByText('Intensa')).toBeInTheDocument();
+    expect(within(world).getByRole('link', { name: 'Continuar: Mundo 1' })).toBeInTheDocument();
   });
 
-  it('mundo completado: muestra el avance completo y permite jugar de nuevo', async () => {
+  it('completado: insignia, veces completado, jugar de nuevo y el siguiente mundo desbloqueado', async () => {
     home({
       'GET /progress': () =>
         ok([
           progress({
             status: 'COMPLETED',
-            currentPosition: 5,
-            statistics: { ...progress().statistics, attemptsCount: 4 },
+            completionsCount: 2,
+            statistics: { ...progress().statistics, attemptsCount: 9 },
           }),
+          progress({ worldSlug: 'signs' }),
+          ...worldsProgress().slice(2),
         ]),
     });
     renderApp('/');
 
-    const world = (await screen.findByRole('heading', { name: 'Aritmética' })).closest(
-      'article',
-    ) as HTMLElement;
-    expect(world).toHaveTextContent(/Desafío\s*4\/4/);
-    expect(within(world).getByRole('button', { name: 'Jugar de nuevo' })).toBeInTheDocument();
+    const first = await worldCard('Aritmética');
+    expect(first).toHaveAttribute('data-status', 'completed');
+    expect(first).toHaveTextContent('Completado 2 veces');
+    expect(within(first).getByRole('link', { name: 'Jugar de nuevo: Mundo 1' })).toBeInTheDocument();
+
+    const second = await worldCard('Números y signos');
+    expect(second).toHaveAttribute('data-status', 'available');
+    expect(within(second).getByRole('link', { name: 'Jugar: Mundo 2' })).toHaveAttribute(
+      'href',
+      '/juego/signs',
+    );
+    expect(await worldCard('Fracciones y decimales')).toHaveAttribute('data-status', 'locked');
   });
 
-  it('los mundos que aún no se pueden jugar aparecen como "Próximamente" y deshabilitados', async () => {
-    home();
-    renderApp('/');
-
-    const world = (await screen.findByRole('heading', { name: 'Números y signos' })).closest(
-      'article',
-    ) as HTMLElement;
-    expect(within(world).getByRole('button', { name: 'Próximamente' })).toBeDisabled();
-  });
-
-  it('Jugar lleva a la partida', async () => {
+  it('Jugar lleva a la partida del mundo', async () => {
     home({
       'POST /worlds/arithmetic/sessions': () => ({
         status: 201,
@@ -126,15 +144,14 @@ describe('inicio', () => {
     });
     renderApp('/');
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Jugar' }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Jugar: Mundo 1' }));
 
     expect(await screen.findByRole('heading', { name: 'Operación 3 × 7' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/juego');
+    expect(screen.getByTestId('location')).toHaveTextContent('/juego/arithmetic');
   });
 
   it('enlaza con Mi progreso y con Clasificaciones', async () => {
     home({
-      'GET /worlds/arithmetic/progress': () => ok(progress()),
       'GET /worlds/arithmetic/score?limit=10': () => ok(scoreSummary()),
       'GET /worlds/arithmetic/attempts?limit=10': () => ok({ items: [], nextCursor: null }),
     });
@@ -150,6 +167,14 @@ describe('inicio', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/progreso');
   });
 
+  it('si el servidor no informa de un mundo en el progreso, no lo bloquea por su cuenta', async () => {
+    home({ 'GET /worlds': () => ok([arithmeticWorld]), 'GET /progress': () => ok([]) });
+    renderApp('/');
+
+    const world = await worldCard('Aritmética');
+    expect(world).toHaveAttribute('data-status', 'available');
+  });
+
   it('sin mundos disponibles lo dice', async () => {
     home({ 'GET /worlds': () => ok([]), 'GET /progress': () => ok([]) });
     renderApp('/');
@@ -161,7 +186,7 @@ describe('inicio', () => {
     const api = home({
       'GET /progress': sequence(
         { status: 500, body: { message: 'Error interno del servidor.' } },
-        ok([progress()]),
+        ok(worldsProgress()),
       ),
     });
     renderApp('/');

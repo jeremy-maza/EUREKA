@@ -19,6 +19,7 @@ import type {
   StudentOverview,
   StudentStatistics,
   TeacherDashboard,
+  WorldSummary,
 } from '@/services/api/types';
 import { InsightsHeader } from '@/components/common/InsightsHeader';
 import { ScreenMessage } from '@/components/ui/ScreenMessage';
@@ -142,6 +143,14 @@ function LearningTrail({ history, attemptCount }: { history: number[] | null; at
 }
 
 type GroupData = { statistics: GroupStatistics; students: StudentOverview[] };
+
+/** «Mundo N» para un slug (las secuencias tienen longitudes distintas: el reto N solo tiene sentido con su mundo). */
+const worldLabel = (worlds: WorldSummary[], slug: string) => {
+  const world = worlds.find((item) => item.slug === slug);
+  return world ? `Mundo ${world.position}` : slug;
+};
+const worldOrder = (worlds: WorldSummary[], slug: string) =>
+  worlds.find((item) => item.slug === slug)?.position ?? Number.MAX_SAFE_INTEGER;
 type StudentDetail = { statistics: StudentStatistics; attempts: StudentAttempt[] };
 
 const errorMessage = (error: unknown) =>
@@ -159,6 +168,21 @@ export function TeacherDashboardPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
+  /** Catálogo de mundos, solo para nombrar y ordenar los retos; si falla, se muestran los slugs. */
+  const [worlds, setWorlds] = useState<WorldSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .worlds()
+      .then((data) => {
+        if (!cancelled) setWorlds(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,19 +334,28 @@ export function TeacherDashboardPage() {
           count: rule.violations,
         }))
       : (statistics?.challengesNeedingReinforcement ?? []).slice(0, 3).map((challenge) => ({
-          key: `${challenge.worldSlug}-${challenge.position}`,
-          label: `Reto ${challenge.position} · ${challenge.expression}`,
+          key: `${challenge.worldSlug}-${challenge.position}-${challenge.expression}`,
+          label: `${worldLabel(worlds, challenge.worldSlug)} · Reto ${challenge.position} · ${challenge.expression}`,
           count: challenge.failures,
         }));
 
-  const detailWorlds = detail?.statistics.worlds ?? [];
+  const detailWorlds = [...(detail?.statistics.worlds ?? [])].sort(
+    (a, b) => worldOrder(worlds, a.worldSlug) - worldOrder(worlds, b.worldSlug),
+  );
+  // Cada mundo tiene secuencias de longitud variable: los retos se identifican por mundo y posición (1..N).
   const masteredChallenges = detailWorlds.flatMap((world) =>
-    world.challenges.filter((challenge) => challenge.attempts > 0 && challenge.failures === 0),
+    world.challenges
+      .filter((challenge) => challenge.attempts > 0 && challenge.failures === 0)
+      .sort((a, b) => a.position - b.position)
+      .map((challenge) => ({
+        key: `${world.worldSlug}-${challenge.position}-${challenge.expression}`,
+        label: `${world.worldName} · Reto ${challenge.position}`,
+      })),
   );
   const reinforcement = [
     ...detailWorlds.flatMap((world) =>
       world.violatedRules.map((rule) => ({
-        key: `rule-${rule.ruleKey}`,
+        key: `rule-${world.worldSlug}-${rule.ruleKey}`,
         label: rule.description ?? rule.ruleKey,
         count: rule.violations,
       })),
@@ -331,8 +364,8 @@ export function TeacherDashboardPage() {
       world.challenges
         .filter((challenge) => challenge.failures > 0)
         .map((challenge) => ({
-          key: `challenge-${world.worldSlug}-${challenge.position}`,
-          label: `Reto ${challenge.position}`,
+          key: `challenge-${world.worldSlug}-${challenge.position}-${challenge.expression}`,
+          label: `${world.worldName} · Reto ${challenge.position}`,
           count: challenge.failures,
         })),
     ),
@@ -621,9 +654,7 @@ export function TeacherDashboardPage() {
                                   </span>
                                 ) : (
                                   masteredChallenges.map((challenge) => (
-                                    <span key={`${challenge.worldSlug}-${challenge.position}`}>
-                                      Reto {challenge.position}
-                                    </span>
+                                    <span key={challenge.key}>{challenge.label}</span>
                                   ))
                                 )}
                               </div>

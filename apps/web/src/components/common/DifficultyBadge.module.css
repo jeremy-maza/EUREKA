@@ -1,0 +1,44 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid rgba(239, 174, 66, 0.6);
+  border-radius: 10px;
+  color: #765015;
+  background: rgba(255, 244, 197, 0.96);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.badge[data-level='EASIER'] {
+  border-color: rgba(94, 170, 96, 0.55);
+  color: #2f6a3a;
+  background: rgba(232, 248, 226, 0.96);
+}
+
+.badge[data-level='HARDER'] {
+  border-color: rgba(239, 142, 124, 0.7);
+  color: #a8433c;
+  background: rgba(255, 232, 228, 0.96);
+}
+
+.dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+.dots i.on {
+  opacity: 1;
+}

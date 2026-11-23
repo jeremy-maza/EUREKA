@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Handler, mockApi, ok, renderApp, sequence, signIn, teacher } from '@/test/utils';
+import { allWorlds, type Handler, mockApi, ok, renderApp, sequence, signIn, teacher } from '@/test/utils';
 import type { StudentOverview, TeacherGroup } from '@/services/api/types';
 
 const totals = {
@@ -78,6 +78,7 @@ const marta = overview('s3', 'Marta');
 function panel(extra: Record<string, Handler> = {}) {
   return mockApi({
     'GET /users/me': () => ok(teacher),
+    'GET /worlds': () => ok(allWorlds),
     'GET /teacher/dashboard': () => ok(dashboard(group('g1', 'Grupo 1'), group('g2', 'Grupo 2'))),
     ...groupRoutes('g1', [luis, ana]),
     ...groupRoutes('g2', [marta]),
@@ -172,5 +173,71 @@ describe('panel docente', () => {
 
     expect(await screen.findByText(/Todavía no tienes grupos activos asignados/)).toBeInTheDocument();
     expect(api.calls.some((call) => call.key.includes('/teacher/groups/'))).toBe(false);
+  });
+
+  it('con varios mundos y secuencias de distinta longitud, cada reto se identifica por su mundo', async () => {
+    const challenge = (worldSlug: string, position: number, expression: string, failures: number) => ({
+      worldSlug,
+      position,
+      expression,
+      attempts: failures + 1,
+      correct: 1,
+      failures,
+      failureRatePercent: null,
+    });
+    panel({
+      'GET /teacher/dashboard': () => ok(dashboard(group('g1', 'Grupo 1'))),
+      'GET /teacher/groups/g1/statistics': () =>
+        ok({
+          generatedAt: '2026-11-21T10:00:00.000Z',
+          studentCount: 1,
+          commonErrors: [{ worldSlug: 'signs', reason: 'WRONG_RESULT', count: 5, sharePercent: 100 }],
+          frequentlyViolatedRules: [],
+          challengesNeedingReinforcement: [
+            challenge('signs', 6, '-3 * 4', 4),
+            challenge('arithmetic', 2, '3 * 7', 1),
+          ],
+          studentsNeedingAttention: [],
+        }),
+      'GET /teacher/groups/g1/dashboard/students?limit=100': () => ok({ items: [luis], nextCursor: null }),
+      'GET /teacher/groups/g1/students/s1/statistics': () =>
+        ok({
+          generatedAt: '2026-11-21T10:00:00.000Z',
+          student: { id: 's1', displayName: 'Luis' },
+          worlds: [
+            {
+              worldSlug: 'signs',
+              worldName: 'Números y signos',
+              consecutiveFailures: 0,
+              commonErrors: [],
+              violatedRules: [],
+              challenges: [challenge('signs', 6, '-3 * 4', 2), challenge('signs', 1, '-2 + 5', 0)],
+            },
+            {
+              worldSlug: 'arithmetic',
+              worldName: 'Aritmética',
+              consecutiveFailures: 0,
+              commonErrors: [],
+              violatedRules: [],
+              challenges: [challenge('arithmetic', 1, '3 * 7', 0)],
+            },
+          ],
+        }),
+      'GET /teacher/groups/g1/students/s1/attempts?limit=100': () => ok({ items: [], nextCursor: null }),
+    });
+    renderApp('/docente');
+
+    expect(await screen.findByText('Mundo 2 · Reto 6 · -3 * 4')).toBeInTheDocument();
+    expect(screen.getByText('Mundo 1 · Reto 2 · 3 * 7')).toBeInTheDocument();
+    const article = await journey('Luis');
+    const mastered = within(
+      (await within(article).findByRole('heading', { name: /Islas dominadas/ })).parentElement as HTMLElement,
+    );
+    // Ordenados por mundo (posición) y por reto; un mismo número de reto en dos mundos no se confunde.
+    expect(mastered.getAllByText(/· Reto/).map((item) => item.textContent)).toEqual([
+      'Aritmética · Reto 1',
+      'Números y signos · Reto 1',
+    ]);
+    expect(within(article).getByText('Números y signos · Reto 6')).toBeInTheDocument();
   });
 });
