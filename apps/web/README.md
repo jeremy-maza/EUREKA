@@ -1,15 +1,12 @@
-# Frontend principal — Matemática bajo reglas
+# Frontend — Matemática bajo reglas (`apps/web`)
 
-Aplicación de la demo: React 19 + TypeScript + Vite. Es un **workspace de npm** del monorepo (`@mbr/frontend`): se
-instala y se verifica desde la raíz. El servidor decide todo (reto, reglas activas, plazo, puntos, racha); este frontend
-solo lo muestra y nunca calcula nada del juego.
-
-> El primer frontend, `apps/web`, se conserva como **heredado** (`npm run dev:web:legacy`, puerto 5174). No recibe
-> funcionalidad nueva.
+La aplicación del juego: React 19 + TypeScript + Vite. Es el workspace de npm `@mbr/web` del monorepo y se instala y se
+verifica desde la raíz. El servidor decide todo (reto, reglas activas, plazo, puntos, racha); este frontend solo lo
+muestra y nunca calcula nada del juego.
 
 ## Arranque
 
-Desde la **raíz** del repositorio (la API y la base de datos deben estar arriba; ver el [README](../README.md)):
+Desde la **raíz** del repositorio (la API y la base de datos deben estar arriba; ver el [README](../../README.md)):
 
 ```bash
 npm install              # una sola vez, para todo el monorepo (no se usa pnpm)
@@ -18,21 +15,24 @@ npm run dev:web          # → http://localhost:5173
 
 - **Puerto 5173**, con `strictPort`: si está ocupado, Vite falla en lugar de moverse a otro puerto, porque la API solo
   acepta por CORS el origen `CORS_ORIGIN` (por defecto `http://localhost:5173`). Si necesitas otro puerto, cambia
-  `CORS_ORIGIN` en el `.env` de la raíz y arranca con `npm run dev -w frontend -- --port <puerto>`.
-- `VITE_API_URL` (por defecto `http://localhost:3000/api`): copia `.env.example` a `.env.local` para cambiarla.
-- Cuentas de prueba: `npm run db:seed:demo` (ver [docs/demo.md](../docs/demo.md)).
+  `CORS_ORIGIN` en el `.env` de la raíz y arranca con `npm run dev -w apps/web -- --port <puerto>`.
+- `VITE_API_URL` (por defecto `http://localhost:3000/api`): copia `apps/web/.env.example` a `apps/web/.env.local` para
+  cambiarla. Es la única variable del frontend (tipada en `src/vite-env.d.ts`).
+- Cuentas de prueba: `npm run db:seed:demo` (ver [docs/demo.md](../../docs/demo.md)).
 
 ## Comandos
 
-Todos se pueden ejecutar desde la raíz con `-w frontend` o con `npm run <comando>` dentro de `frontend/`.
+Todos se pueden ejecutar desde la raíz con `-w apps/web` o con `npm run <comando>` dentro de `apps/web/`.
 
-| Comando                         | Qué hace                                                 |
-| ------------------------------- | -------------------------------------------------------- |
-| `npm run dev -w frontend`       | Servidor de desarrollo (5173)                            |
-| `npm run typecheck -w frontend` | `tsc -b` (app, pruebas y configuración de Vite)          |
-| `npm run lint -w frontend`      | ESLint con la configuración de la raíz (reglas de React) |
-| `npm run test -w frontend`      | Pruebas (Vitest + Testing Library), ~3 s                 |
-| `npm run build -w frontend`     | `tsc -b` + `vite build` → `frontend/dist`                |
+| Comando                          | Qué hace                                                 |
+| -------------------------------- | -------------------------------------------------------- |
+| `npm run dev -w apps/web`        | Servidor de desarrollo (5173)                            |
+| `npm run typecheck -w apps/web`  | `tsc -b` (app, pruebas y configuración de Vite)          |
+| `npm run lint -w apps/web`       | ESLint con la configuración de la raíz (reglas de React) |
+| `npm run test -w apps/web`       | Pruebas (Vitest + Testing Library)                       |
+| `npm run test:watch -w apps/web` | Pruebas en modo observación                              |
+| `npm run build -w apps/web`      | `tsc -b` + `vite build` → `apps/web/dist`                |
+| `npm run preview -w apps/web`    | Sirve el build en <http://localhost:4173>                |
 
 `npm run verify` en la raíz ejecuta typecheck, lint, formato, pruebas y build de **todo** el monorepo, incluido este
 workspace. El formato lo comprueba Prettier desde la raíz (`npm run format:check`).
@@ -41,21 +41,41 @@ workspace. El formato lo comprueba Prettier desde la raíz (`npm run format:chec
 
 ```
 src/
-  App.tsx                 Rutas (`AppRoutes`, sin router, para poder probarlas) y `BrowserRouter`
+  main.tsx                Punto de entrada: monta <App /> y los estilos globales
+  vite-env.d.ts           Tipos de Vite y de `import.meta.env` (VITE_API_URL)
+  app/
+    App.tsx               BrowserRouter + AppRoutes
+    router/AppRoutes.tsx  Tabla de rutas y guards (se exporta sin router para montarla en las pruebas)
   features/
-    auth/                 AuthContext (sesión y token), RequireAuth, RequireRole, pantalla de acceso/registro
+    auth/                 AuthContext (sesión y token), components/ (RequireAuth, RequireRole), pages/ (acceso/registro)
     home/                 Inicio: mundos, progreso, reglas descubiertas y estadísticas
-    game/                 Partida (GamePage), pantalla final y componentes del grillo/islas
+    game/                 Partida (GamePage), pantalla final, feedback.ts (textos de resultado) y el grillo
     progress/             «Mi progreso» (/progreso): puntos, rachas, reglas, estadísticas e historial
-    classifications/      Clasificación entre compañeros de grupo
+    leaderboard/          Clasificación entre compañeros de grupo (/clasificaciones)
     teacher/              Panel docente (solo lectura)
-  shared/
-    api/                  `client.ts` (fetch + errores + token) y `types.ts` (contratos de la API, a mano)
-    components/           Logo, ScreenMessage, InsightsHeader
+  components/
+    ui/                   Piezas visuales sin conocimiento de la app: Logo, ScreenMessage, FloatingIsland
+    common/               Compartidos que conocen la app: InsightsHeader (navegación según rol y sesión)
+  services/
+    api/                  `client.ts` (fetch, errores, 401) y `types.ts` (contratos de la API, a mano)
+    storage/              `token-store.ts` (token de acceso en localStorage)
+  lib/                    `worlds.ts` (slug del Mundo 1, usado por varias funcionalidades)
+  styles/                 `global.css` (reset y variables de la identidad visual)
+  assets/                 grillo/ (sprites del personaje) y backgrounds/ (fondo opcional de la partida)
   test/                   `setup.ts` y `utils.tsx` (fixtures, API simulada, `renderApp`)
 ```
 
-Las pruebas viven junto a lo que prueban (`*.test.ts(x)`).
+Cada funcionalidad agrupa sus `pages/`, sus `components/` y su lógica; solo se crean subcarpetas cuando hay algo que
+poner en ellas. Las pruebas viven junto a lo que prueban (`*.test.ts(x)`). El alias `@/` apunta a `src/` (Vite y
+`tsconfig.app.json`).
+
+Reglas de dependencia:
+
+- `app → features → components / services / lib`; las capas compartidas nunca importan de `features/` ni de `app/`.
+- Una funcionalidad no importa de otra. Única excepción: la sesión (`useAuth` de `features/auth/AuthContext`), que es
+  estado global.
+- Si algo empieza a usarse en dos funcionalidades, se mueve a `components/`, `services/` o `lib/`.
+- Nada se importa de `apps/api`: el contrato con el backend es HTTP y `services/api/types.ts`.
 
 ## Rutas
 
@@ -69,7 +89,7 @@ Las pruebas viven junto a lo que prueban (`*.test.ts(x)`).
 | `/docente`             | docente     | Panel docente                                   |
 
 `RequireAuth` redirige a `/acceso` sin sesión (y avisa si el servidor rechazó un token guardado); `RequireRole` evita
-mostrar a cada rol pantallas que la API le rechazaría con 403.
+mostrar a cada rol pantallas que la API le rechazaría con 403. Cualquier otra ruta redirige a `/`.
 
 ## Pruebas
 
@@ -91,8 +111,8 @@ Notas para escribir pruebas del juego:
 ## Convenciones
 
 - **No se duplica lógica del juego.** Si una pantalla necesita un dato nuevo, se pide a la API.
-- Los tipos de `shared/api/types.ts` reflejan los DTO de `apps/api` y se mantienen **a mano**: al cambiar un DTO,
-  actualiza este archivo.
-- Estilos con CSS Modules y las variables de `src/index.css`; no se cambia la identidad visual sin acordarlo.
+- Los tipos de `services/api/types.ts` reflejan los DTO de `apps/api` y se mantienen **a mano**: al cambiar un DTO,
+  actualiza este archivo (por qué no hay un paquete compartido: ADR 13 en [docs/architecture.md](../../docs/architecture.md)).
+- Estilos con CSS Modules y las variables de `src/styles/global.css`; no se cambia la identidad visual sin acordarlo.
 - El estado de «cargando/error/reintentar» usa `ScreenMessage`; los efectos de carga no llaman a `setState` de forma
   síncrona (regla `react-hooks/set-state-in-effect`): para reintentar se incrementa un contador de recarga.

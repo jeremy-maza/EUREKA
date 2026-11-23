@@ -1,6 +1,6 @@
 # Autenticación, sesiones y gestión de cuentas
 
-Este documento describe la API de cuentas, las decisiones de seguridad y sus límites. El frontend principal (`frontend/`)
+Este documento describe la API de cuentas, las decisiones de seguridad y sus límites. El frontend (`apps/web`)
 ya implementa registro, acceso y cierre de sesión; **no** hay pantallas de recuperación ni de cambio de contraseña (solo la API). Referencia rápida de rutas: [api.md](./api.md). Swagger: `/api/docs`.
 
 ## 1. Arquitectura

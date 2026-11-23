@@ -1,7 +1,7 @@
 # Grupos, docentes y panel docente (backend)
 
 Referencia del dominio de grupos: arquitectura, modelo de datos, autorización, endpoints y operación. Es el backend
-(`apps/api`): API REST. El frontend principal (`frontend/`) solo consume la parte de lectura (panel docente y
+(`apps/api`): API REST. El frontend (`apps/web`) solo consume la parte de lectura (panel docente y
 clasificación); no hay pantallas para crear grupos, asignar docentes ni añadir estudiantes: se hace por API. Swagger: `/api/docs`
 (etiquetas `admin`, `teacher`, `teacher-dashboard`, `users`).
 

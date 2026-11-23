@@ -5,8 +5,8 @@ Juego educativo de matemáticas inspirado en _The Password Game_. El jugador res
 
 > Estado: **MVP jugable del Mundo 1 (Aritmética)**: registro/login, partida con temporizador, reglas acumuladas,
 > puntuación con multiplicador de racha, «Mi progreso», clasificación entre compañeros y panel docente de solo lectura,
-> sobre el backend (motor, JWT con sesiones revocables, puntuación auditable y API REST con Swagger). El frontend
-> principal es `frontend/`. Ver [Demo jugable](#demo-jugable) y [Alcance actual](#alcance-actual).
+> sobre el backend (motor, JWT con sesiones revocables, puntuación auditable y API REST con Swagger). El frontend es
+> `apps/web`. Ver [Demo jugable](#demo-jugable) y [Alcance actual](#alcance-actual).
 
 ## Mundos
 
@@ -20,15 +20,24 @@ Juego educativo de matemáticas inspirado en _The Password Game_. El jugador res
 
 ```
 apps/
-  api/        NestJS + Prisma 7 + PostgreSQL (REST, Swagger)
-  web/        Frontend HEREDADO (React + Vite). Conservado, pero ya no es la app de la demo: ver más abajo
-frontend/     Frontend PRINCIPAL (React 19 + Vite + TypeScript): es el que se usa en la demo
-docs/         Arquitectura y decisiones (ADR)
+  api/                NestJS + Prisma 7 + PostgreSQL (REST, Swagger)        → workspace @mbr/api
+  web/                React 19 + Vite + TypeScript (la aplicación del juego) → workspace @mbr/web
+docs/                 Arquitectura, API, autenticación, grupos y demo (incluye ADR)
+package.json          Workspaces (`apps/*`) y scripts de todo el monorepo
+package-lock.json     Único lockfile (npm)
+eslint.config.mjs     ESLint (flat config) para todo el repositorio
+.prettierrc.json      Prettier para todo el repositorio
+docker-compose.yml    PostgreSQL local
+.env.example          Variables de la API y de Docker Compose (se copia a `.env`)
+.nvmrc                Versión de Node recomendada
 ```
 
-Monorepo con **npm workspaces** (`apps/*` y `frontend`): una sola instalación (`npm install` en la raíz) y un solo
-`package-lock.json`. No hay `packages/` compartidos porque todavía no hay código reutilizable entre frontend y backend
-(los tipos de la API del frontend se mantienen a mano en `frontend/src/shared/api/types.ts`).
+Monorepo con **npm workspaces** (`apps/*`): una sola instalación (`npm install` en la raíz) y un solo
+`package-lock.json`. ESLint, Prettier y EditorConfig se configuran una vez en la raíz; cada app conserva solo su
+configuración propia (TypeScript, Vite/Vitest, Nest/Jest/Prisma). **No hay `packages/` compartidos**: los contratos de la
+API se mantienen a mano en `apps/web/src/services/api/types.ts` (motivo en el
+[ADR 13](./docs/architecture.md#registro-de-decisiones-adr)). Estructura interna de cada app:
+[docs/architecture.md](./docs/architecture.md) y [`apps/web/README.md`](./apps/web/README.md).
 
 ## Requisitos
 
@@ -53,7 +62,7 @@ npm run db:seed               # siembra el catálogo del Mundo 1 (OBLIGATORIO: l
 
 # 4. Arrancar (en dos terminales)
 npm run dev:api               # API      → http://localhost:3000/api
-npm run dev:web               # Frontend → http://localhost:5173   (frontend/, el principal)
+npm run dev:web               # Frontend → http://localhost:5173   (apps/web)
 ```
 
 - Abre <http://localhost:5173> y sigue la [demo jugable](#demo-jugable).
@@ -65,37 +74,31 @@ npm run dev:web               # Frontend → http://localhost:5173   (frontend/,
 > La API arranca aunque la base de datos no esté disponible (la conexión es perezosa); solo
 > `/api/health/ready` devolverá 503.
 
-## Frontend principal (`frontend/`)
+## Frontend (`apps/web`)
 
-`frontend/` (React 19 + Vite + TypeScript, **workspace de npm**) es la aplicación de la demo. Usa la API real para
+`apps/web` (React 19 + Vite + TypeScript, workspace `@mbr/web`) es la única aplicación frontend. Usa la API real para
 registro/login, mundos, progreso, sesión de juego, reto, reglas, puntuación, racha, cronómetro, clasificación y panel
 docente: el servidor decide todo y el frontend solo lo muestra. Detalle de su estructura y pruebas:
-[`frontend/README.md`](./frontend/README.md).
+[`apps/web/README.md`](./apps/web/README.md).
 
 ```bash
 # API + BD como arriba (incluido `npm run db:seed`), y luego, desde la raíz:
 npm run dev:web               # → http://localhost:5173
-# opcional: `cp frontend/.env.example frontend/.env.local` para cambiar VITE_API_URL
+# opcional: `cp apps/web/.env.example apps/web/.env.local` para cambiar VITE_API_URL
 ```
 
-**Puerto:** el frontend principal usa **5173** (`strictPort`: si está ocupado, Vite falla en voz alta en lugar de
-cambiar de puerto, porque la API rechazaría por CORS cualquier otro origen). El heredado `apps/web` usa **5174**.
+**Puerto:** el frontend usa **5173** (`strictPort`: si está ocupado, Vite falla en voz alta en lugar de cambiar de
+puerto, porque la API rechazaría por CORS cualquier otro origen).
 
 | Variable       | Dónde    | Por defecto                 | Descripción                                            |
 | -------------- | -------- | --------------------------- | ------------------------------------------------------ |
-| `VITE_API_URL` | frontend | `http://localhost:3000/api` | URL base de la API (con `/api`)                        |
+| `VITE_API_URL` | apps/web | `http://localhost:3000/api` | URL base de la API (con `/api`)                        |
 | `CORS_ORIGIN`  | API      | `http://localhost:5173`     | Origen del frontend permitido por CORS (un solo valor) |
 
 Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `/juego`, `/final`, `/progreso` («Mi
 progreso»: puntos, rachas, reglas, estadísticas e historial), `/clasificaciones` (estudiantes; solo compañeros de grupo)
 y `/docente` (docentes; panel con estadísticas reales de sus grupos). Sin botón de pausa: el cronómetro es del servidor y
 no se puede detener.
-
-### Frontend heredado (`apps/web`)
-
-`apps/web` es el primer frontend (React + Vite, con proxy `/api` a la API). **Se conserva** —sigue en los workspaces, con
-sus pruebas— pero ya no es la app de la demo y no recibe funcionalidad nueva. Se arranca con `npm run dev:web:legacy`
-(<http://localhost:5174>). Su retirada está pendiente de aprobación explícita.
 
 ## Datos de demostración
 
@@ -164,34 +167,33 @@ Detalle de las de autenticación (límites, correo, proxies): [docs/authenticati
 
 ## Scripts (desde la raíz)
 
-| Comando                   | Qué hace                                                             |
-| ------------------------- | -------------------------------------------------------------------- |
-| `npm run dev:api`         | API en desarrollo (<http://localhost:3000/api>)                      |
-| `npm run dev:web`         | Frontend principal `frontend/` (<http://localhost:5173>)             |
-| `npm run dev:web:legacy`  | Frontend heredado `apps/web` (<http://localhost:5174>)               |
-| `npm run verify`          | typecheck + lint + format:check + tests + build (todo lo anterior)   |
-| `npm test`                | Tests del API (Jest), del frontend principal y del heredado (Vitest) |
-| `npm run typecheck`       | TypeScript en API, `frontend/` y `apps/web`                          |
-| `npm run lint`            | ESLint (flat config) en todo el monorepo, incluido `frontend/`       |
-| `npm run format[:check]`  | Prettier (todo el repositorio, incluido `frontend/`)                 |
-| `npm run build`           | Compila API (`apps/api/dist`), `frontend/dist` y `apps/web/dist`     |
-| `npm run db:up / db:down` | Levanta / detiene PostgreSQL con Docker Compose                      |
-| `npm run db:generate`     | `prisma generate`                                                    |
-| `npm run db:migrate`      | `prisma migrate dev` (crea/aplica migraciones en desarrollo)         |
-| `npm run db:seed`         | Siembra mundo/reglas/retos (idempotente; valida resolubilidad)       |
-| `npm run db:seed:demo`    | (Re)crea cuentas y escenarios demo (solo desarrollo)                 |
-| `npm run db:demo:reset`   | Elimina SOLO las cuentas demo (`@demo.eureka.local`)                 |
-| `npm run admin:create`    | Crea un administrador (script operativo; contraseña por consola)     |
-| `npm run auth:cleanup`    | Purga sesiones/tokens/contadores de autenticación caducados          |
+| Comando                   | Qué hace                                                           |
+| ------------------------- | ------------------------------------------------------------------ |
+| `npm run dev:api`         | API en desarrollo (<http://localhost:3000/api>)                    |
+| `npm run dev:web`         | Frontend `apps/web` (<http://localhost:5173>)                      |
+| `npm run verify`          | typecheck + lint + format:check + tests + build (todo lo anterior) |
+| `npm test`                | Tests de la API (Jest) y del frontend (Vitest)                     |
+| `npm run typecheck`       | TypeScript en `apps/api` y `apps/web`                              |
+| `npm run lint`            | ESLint (flat config) en todo el monorepo                           |
+| `npm run format[:check]`  | Prettier en todo el repositorio                                    |
+| `npm run build`           | Compila la API (`apps/api/dist`) y el frontend (`apps/web/dist`)   |
+| `npm run db:up / db:down` | Levanta / detiene PostgreSQL con Docker Compose                    |
+| `npm run db:generate`     | `prisma generate`                                                  |
+| `npm run db:migrate`      | `prisma migrate dev` (crea/aplica migraciones en desarrollo)       |
+| `npm run db:seed`         | Siembra mundo/reglas/retos (idempotente; valida resolubilidad)     |
+| `npm run db:seed:demo`    | (Re)crea cuentas y escenarios demo (solo desarrollo)               |
+| `npm run db:demo:reset`   | Elimina SOLO las cuentas demo (`@demo.eureka.local`)               |
+| `npm run admin:create`    | Crea un administrador (script operativo; contraseña por consola)   |
+| `npm run auth:cleanup`    | Purga sesiones/tokens/contadores de autenticación caducados        |
 
 En `apps/api` también: `npm run test:cov` (cobertura), `npm run db:studio`, `npm run db:migrate:deploy` (producción).
-En `frontend/`: `npm run test:watch -w frontend` (pruebas en modo observación).
+En `apps/web`: `npm run test:watch -w apps/web` (pruebas en modo observación) y `npm run preview -w apps/web`.
 
 ## Pruebas
 
 ```bash
-npm test                          # todo: API (unitarias + integración), frontend principal y heredado
-npm run test -w frontend          # solo el frontend principal (Vitest + Testing Library), ~3 s
+npm test                          # todo: API (unitarias + integración) y frontend
+npm run test -w apps/web          # solo el frontend (Vitest + Testing Library)
 npm run test:unit -w apps/api     # unitarias del backend (Jest + ts-jest), ~1 s
 npm run test:integration -w apps/api  # integración HTTP + PostgreSQL real, ~7 s
 npm run test:cov -w apps/api      # cobertura de las unitarias
@@ -203,7 +205,7 @@ npm run test:cov -w apps/api      # cobertura de las unitarias
 - **Integración:** la aplicación Nest COMPLETA (guards, pipes, filtros) sobre HTTP real y **PostgreSQL real**: un
   PGlite (Postgres en WASM) en proceso al que se aplican **las migraciones SQL del repositorio**. No necesitan Docker.
   El reloj del servidor es inyectable (`Clock`), así que los plazos se prueban sin esperas.
-- **Frontend (`frontend/`):** Vitest + Testing Library sobre jsdom, con la API simulada a nivel de `fetch`
+- **Frontend (`apps/web`):** Vitest + Testing Library sobre jsdom, con la API simulada a nivel de `fetch`
   (`src/test/utils.tsx`; una ruta sin simular falla la prueba). Montan las rutas reales de la app y cubren registro,
   acceso, rutas protegidas por sesión y rol, sesión caducada, partida (acierto, progresión de reglas, fallo, reinicio,
   tiempo agotado, conflictos y errores de la API), «Mi progreso», inicio, clasificación, panel docente (carga y cambio de
@@ -275,7 +277,7 @@ Implementado y verificado:
   estudiantes, intentos). En el frontend solo existe el panel docente **de solo lectura**: crear grupos, asignar docentes o
   añadir estudiantes se hace por API (ver [docs/groups-and-teachers.md](./docs/groups-and-teachers.md)).
 - Esquema Prisma con 4 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed.
-- **Frontend principal** (`frontend/`, React 19 + Vite): registro y login (token en `localStorage`, rutas protegidas por
+- **Frontend** (`apps/web`, React 19 + Vite): registro y login (token en `localStorage`, rutas protegidas por
   sesión y rol), pantalla de juego (reto, reglas activas con la nueva resaltada, cuenta atrás del servidor, resultado,
   reinicio de secuencia), inicio con mundos y progreso, «Mi progreso», clasificación entre compañeros de grupo y panel
   docente de solo lectura. Solo el Mundo 1; los demás aparecen como «Próximamente». Sin pantallas de administración,
