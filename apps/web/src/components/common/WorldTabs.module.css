@@ -1,30 +1,27 @@
+/* Las cinco pestañas caben envolviéndose en varias filas; en pantallas muy estrechas se desplazan en horizontal con una
+   barra visible (la pestaña activa se desplaza a la vista). */
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   width: 100%;
   margin: 0;
   padding: 5px;
-  overflow-x: auto;
   border: 2px solid #e8e4d8;
   border-radius: 18px;
   background: #fff8e9;
-  scrollbar-width: none;
-}
-
-.tabs::-webkit-scrollbar {
-  display: none;
 }
 
 .tab {
   min-height: 40px;
   display: inline-flex;
-  flex: 1 0 auto;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   gap: 7px;
   padding: 0 12px;
   border-radius: 14px;
-  color: #607584;
+  color: #546a78;
   font-size: 13px;
   font-weight: 800;
   white-space: nowrap;
@@ -58,19 +55,28 @@
   box-shadow: 0 3px 0 var(--line);
 }
 
+/* Bloqueada: tono apagado pero legible (≥ 4.5:1 sobre el fondo crema). */
 .locked {
-  color: #8b979f;
+  color: #5f6f78;
 }
 
 .locked .number {
-  background: #b7c0c5;
+  background: #66757e;
 }
 
 .done {
-  color: var(--success);
+  color: var(--leaf);
 }
 
-@media (max-width: 600px) {
+@media (max-width: 480px) {
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 7px;
+    scrollbar-color: #d8c9a4 transparent;
+    scrollbar-width: thin;
+  }
+
   .tab {
     flex: 0 0 auto;
     padding: 0 10px;

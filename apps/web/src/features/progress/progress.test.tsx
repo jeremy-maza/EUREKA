@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -53,7 +53,8 @@ describe('Mi progreso', () => {
     );
     expect(screen.queryByRole('heading', { name: 'Estadísticas' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Últimos intentos' })).not.toBeInTheDocument();
-    // Solo usa los endpoints existentes.
+    // Solo usa los endpoints existentes (el historial del mundo se pide después del catálogo).
+    await waitFor(() => expect(api.count('GET /worlds/arithmetic/attempts?limit=10')).toBe(1));
     expect(api.calls.map((call) => call.key).sort()).toEqual(
       [
         'GET /users/me',
@@ -315,7 +316,26 @@ describe('Mi progreso', () => {
     expect(api.calls.some((call) => call.key.startsWith('GET /worlds/fractions/'))).toBe(false);
   });
 
-  it('sin mundo en la URL abre el más indicado (el primero desbloqueado y sin completar)', async () => {
+  it('sin mundo en la URL abre el mundo más jugado, no uno sin estrenar', async () => {
+    progressApi({
+      'GET /progress': () =>
+        ok([
+          progress({
+            status: 'COMPLETED',
+            completionsCount: 1,
+            totalPoints: 800,
+            statistics: { ...progress().statistics, attemptsCount: 6 },
+          }),
+          progress({ worldSlug: 'signs' }),
+          ...worldsProgress().slice(2),
+        ]),
+    });
+    renderApp('/progreso');
+
+    expect(await screen.findByText('Mundo 1 · Aritmética')).toBeInTheDocument();
+  });
+
+  it('sin mundo en la URL y sin haber jugado, abre el más indicado (el primero desbloqueado y sin completar)', async () => {
     progressApi({
       'GET /progress': () =>
         ok([

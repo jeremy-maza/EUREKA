@@ -22,7 +22,7 @@
   align-items: center;
   gap: 6px;
   color: #638393;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.13em;
 }
@@ -52,7 +52,7 @@
   padding: 7px 0 7px 12px;
   border-left: 2px solid #e6bd64;
   color: #7a715e;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -109,6 +109,7 @@
 }
 
 .sceneLabel {
+  white-space: nowrap;
   position: absolute;
   z-index: 1;
   top: 16px;
@@ -117,7 +118,7 @@
   align-items: center;
   gap: 9px;
   color: #6b8f91;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.16em;
   transform: translateX(-50%);
@@ -245,7 +246,7 @@
 
 .leaderSign > span {
   color: #9b723d;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -268,7 +269,7 @@
 
 .leaderSign small {
   color: #78877e;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -371,7 +372,7 @@
 .studentCount {
   padding-bottom: 3px;
   color: #7a8b86;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -415,7 +416,7 @@
   display: block;
   margin-top: 2px;
   color: #538da1;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -428,7 +429,7 @@
 
 .studentPoints small {
   color: #89979a;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -451,7 +452,7 @@
   .intro .demoNotice {
     padding-top: 4px;
     padding-bottom: 4px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .worldScene {
     height: 400px;
@@ -459,7 +460,7 @@
   }
   .sceneLabel {
     top: 13px;
-    font-size: 8px;
+    font-size: 11px;
   }
   .sceneSun {
     top: 44px;
@@ -510,16 +511,16 @@
     left: calc(50% - 2px);
   }
   .leaderSign > span {
-    font-size: 7px;
+    font-size: 11px;
   }
   .leaderSign > strong {
-    font-size: 10px;
+    font-size: 11px;
   }
   .leaderSign > b {
-    font-size: 10px;
+    font-size: 11px;
   }
   .leaderSign small {
-    font-size: 8px;
+    font-size: 11px;
   }
   .leaderIsland {
     width: 164px;
@@ -532,7 +533,7 @@
   .islandNumber {
     width: 21px;
     height: 21px;
-    font-size: 10px;
+    font-size: 11px;
   }
   .grasshopper {
     width: 39px;
@@ -581,7 +582,7 @@
     min-width: 119px;
   }
   .leaderSign > strong {
-    font-size: 9px;
+    font-size: 11px;
   }
   .secondPlace {
     left: 22%;

@@ -90,8 +90,8 @@ Reglas de dependencia:
 | `/juego`                  | estudiante  | Redirige al mundo más indicado: el primero desbloqueado y sin completar; si no hay, `arithmetic` |
 | `/juego/:slug`            | estudiante  | Partida en ese mundo                                                                             |
 | `/final/:slug`            | estudiante  | Mundo completado (`/final` sin mundo vuelve a `/`)                                               |
-| `/progreso/:slug?`        | estudiante  | Mi progreso, con selector de mundo (sin slug: el mundo más indicado)                             |
-| `/clasificaciones/:slug?` | estudiante  | Clasificación por mundo, con selector de mundo                                                   |
+| `/progreso/:slug?`        | estudiante  | Mi progreso, con selector de mundo (sin slug: el mundo más jugado)                               |
+| `/clasificaciones/:slug?` | estudiante  | Clasificación por mundo (sin slug: el más jugado)                                                |
 | `/docente`                | docente     | Panel docente                                                                                    |
 
 `RequireAuth` redirige a `/acceso` sin sesión (y avisa si el servidor rechazó un token guardado); `RequireRole` evita
@@ -103,18 +103,26 @@ en `GET /worlds` muestra «No encontramos ese mundo» con un camino de vuelta.
 - **Mundos y desbloqueo.** `GET /worlds` da los cinco mundos (se ordenan por `position`); `GET /progress` dice si cada
   uno está desbloqueado (`unlocked`, `unlockRequirement`) y cuántas veces se completó (`completionsCount`). El mapa
   solo lo refleja. Si se entra en un mundo bloqueado, el servidor responde **403** con su mensaje; la partida lo
-  muestra y ofrece ir al mundo que hay que completar.
+  muestra y ofrece ir al primer mundo desbloqueado de la cadena de requisitos (leída de `GET /progress`).
+- **El cronómetro no empieza solo.** Al entrar en un mundo se abre la sesión y se lee el progreso: si hay un reto en
+  curso (`pendingAttemptId`) se reanuda; si no, se muestra una tarjeta de inicio y el reto (`POST /sessions/:id/attempts`)
+  solo empieza al pulsar «Empezar desafío». Tras un acierto el siguiente reto empieza solo; tras un fallo, «Nueva
+  secuencia» es una decisión explícita. Si `startSession` informa de un `expiredAttempt`, se avisa una vez (no se repite
+  tras un «tiempo agotado» ya mostrado en la partida).
 - **Secuencias.** Cada secuencia sortea un subconjunto y un orden de reglas y una dificultad (`EASIER/BASELINE/HARDER`
   → «Suave / Normal / Intensa»); su longitud (`attempt.challengeCount`) varía y la ruta de islas del grillo se adapta
   (una isla por reto más la de llegada).
 - **Fallo = reglas descartadas.** Respuesta incorrecta, regla incumplida, sintaxis inválida o tiempo agotado terminan
   la secuencia: el diálogo lista `answer.discardedRules`, explica que la racha vuelve a 0, que **los puntos y las
-  reglas dominadas se conservan** y que la próxima secuencia sorteará reglas nuevas («Nueva secuencia»).
+  reglas dominadas se conservan** y que la próxima secuencia hará un nuevo sorteo de reglas. Acciones: «Nueva secuencia» y «Volver al mapa»; el foco queda
+  atrapado en el diálogo y Escape vuelve al mapa (sin empezar ningún reto).
 - **Reglas dominadas.** `progress.unlockedRules` son las reglas superadas alguna vez (colección permanente), no las
   activas. Se muestran como «x / ruleCount».
 - **Enunciado.** Se muestra `attempt.instruction` encima de la respuesta. `statementKind: 'EQUATION'` se presenta como
-  «Resuelve: 3 × x + 4 = 19» con el prefijo «x =» en la respuesta. Los símbolos permitidos (`attempt.syntax`) se
-  muestran como fichas; el campo no filtra nada: valida el servidor. Nunca se muestra el resultado esperado.
+  «Resuelve: 3 × x + 4 = 19» con el prefijo «x =» en la respuesta. La x se muestra en cursiva y color. Los símbolos
+  permitidos (`attempt.syntax`) se muestran como fichas. En los mundos con decimales `/` se muestra tal cual (fracciones);
+  en el resto, como `÷`. **Única validación local:** en una ecuación, una respuesta con la letra x no se envía (sería un
+  error de sintaxis que terminaría la secuencia) y se explica cómo responder; todo lo demás lo valida el servidor. Nunca se muestra el resultado esperado.
 - **Mundo completado.** `worldCompleted` lleva a `/final/:slug`; si `nextWorldUnlocked` viene informado se celebra y
   se ofrece «Ir al Mundo N».
 

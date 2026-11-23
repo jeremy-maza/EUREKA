@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import grasshopperIdle from '@/assets/grillo/grillo1.png';
 import { FloatingIsland } from '@/components/ui/FloatingIsland';
-import { pickDefaultWorld, worldAccentStyle } from '@/lib/worlds';
+import { pickRecentWorld, worldAccentStyle } from '@/lib/worlds';
 import { useWorldCatalog } from '@/lib/useWorldCatalog';
 import { api, ApiError } from '@/services/api/client';
 import type { Leaderboard, WorldSummary } from '@/services/api/types';
@@ -13,7 +13,9 @@ import { ScreenMessage } from '@/components/ui/ScreenMessage';
 import styles from './LeaderboardPage.module.css';
 
 const podiumStyles = [styles.secondPlace, styles.firstPlace, styles.thirdPlace];
-const placeNames = ['Segundo lugar', 'Primer lugar', 'Tercer lugar'];
+/** Nombre del puesto según el `rank` del servidor (con empates, dos jugadores comparten puesto). */
+const PLACE_NAMES: Record<number, string> = { 1: 'Primer lugar', 2: 'Segundo lugar', 3: 'Tercer lugar' };
+const placeName = (rank: number) => PLACE_NAMES[rank] ?? `Puesto ${rank}`;
 
 /** Clasificación por mundo (`/clasificaciones/:slug?`). */
 export function LeaderboardPage() {
@@ -33,7 +35,7 @@ export function LeaderboardPage() {
   }
   if (!catalog) return <ScreenMessage title="Cargando clasificación…" />;
 
-  const slug = slugParam ?? pickDefaultWorld(catalog.worlds, catalog.progress);
+  const slug = slugParam ?? pickRecentWorld(catalog.worlds, catalog.progress);
   const world = catalog.worlds.find((item) => item.slug === slug);
 
   if (!world) {
@@ -157,24 +159,25 @@ function WorldBoard({ world, tabs }: { world: WorldSummary; tabs: ReactNode }) {
         <div className={styles.leaderRoute} aria-hidden="true" />
         {podium.map((student, index) => {
           if (!student) return null;
-          const place = index === 1 ? 1 : index === 0 ? 2 : 3;
+          // La isla (posición visual) es fija; el nombre y el número del puesto son el `rank` real.
+          const isTop = index === 1;
           return (
             <article
-              key={`${place}-${student.displayName}`}
+              key={`${index}-${student.displayName}`}
               className={`${styles.leader} ${podiumStyles[index]}`}
-              aria-label={`${placeNames[index]}: ${student.displayName}, ${student.points.toLocaleString('es')} puntos`}
+              aria-label={`${placeName(student.rank)}: ${student.displayName}, ${student.points.toLocaleString('es')} puntos`}
             >
               <div className={styles.leaderSign}>
-                <span>{placeNames[index]}</span>
+                <span>{placeName(student.rank)}</span>
                 <strong>{student.displayName}</strong>
                 <b>
                   {student.points.toLocaleString('es')} <small>puntos</small>
                 </b>
               </div>
-              {place === 1 && <img className={styles.grasshopper} src={grasshopperIdle} alt="" />}
+              {isTop && <img className={styles.grasshopper} src={grasshopperIdle} alt="" />}
               <FloatingIsland className={styles.leaderIsland} top={48} />
               <span className={styles.islandNumber} aria-hidden="true">
-                {place}
+                {student.rank}
               </span>
             </article>
           );

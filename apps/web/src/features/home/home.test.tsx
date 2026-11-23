@@ -145,6 +145,8 @@ describe('inicio: mapa de mundos', () => {
     renderApp('/');
 
     await userEvent.click(await screen.findByRole('link', { name: 'Jugar: Mundo 1' }));
+    // El reto no empieza hasta que el jugador lo pide.
+    await userEvent.click(await screen.findByRole('button', { name: 'Empezar desafío' }));
 
     expect(await screen.findByRole('heading', { name: 'Operación 3 × 7' })).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/juego/arithmetic');

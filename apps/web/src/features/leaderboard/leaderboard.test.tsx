@@ -172,4 +172,19 @@ describe('clasificaciones', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
     expect(await screen.findByRole('heading', { name: 'Clasificaciones' })).toBeInTheDocument();
   });
+
+  it('el podio usa el puesto real del servidor (empates incluidos)', async () => {
+    const me = entry(2, 'Ana', 300, true);
+    boardApi({
+      'GET /worlds/arithmetic/leaderboard?limit=50': () =>
+        ok(board({ entries: [entry(1, 'Luis', 900), me, entry(2, 'Marta', 300)], me })),
+    });
+    renderApp('/clasificaciones/arithmetic');
+
+    const podium = await screen.findByRole('region', { name: 'Islas de los primeros lugares' });
+    expect(within(podium).getByRole('article', { name: /^Primer lugar: Luis/ })).toBeInTheDocument();
+    expect(within(podium).getByRole('article', { name: /^Segundo lugar: Ana/ })).toBeInTheDocument();
+    expect(within(podium).getByRole('article', { name: /^Segundo lugar: Marta/ })).toBeInTheDocument();
+    expect(within(podium).queryByText('Tercer lugar')).not.toBeInTheDocument();
+  });
 });

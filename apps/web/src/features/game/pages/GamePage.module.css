@@ -133,7 +133,7 @@
 }
 
 .timerReadout span {
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
 }
@@ -385,7 +385,7 @@
   display: block;
   margin-bottom: 3px;
   color: #a76b17;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
 }
@@ -511,7 +511,7 @@
   color: #547487;
   background: rgba(255, 253, 247, 0.9);
   box-shadow: 0 3px 10px rgba(67, 109, 115, 0.14);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -626,7 +626,7 @@
     display: flex;
     justify-self: start;
     gap: 5px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .worldName strong {
     font-size: 11px;
@@ -647,7 +647,7 @@
     padding: 6px 8px 7px;
   }
   .timerReadout span {
-    font-size: 7px;
+    font-size: 11px;
   }
   .timerReadout strong {
     font-size: 13px;
@@ -685,10 +685,10 @@
     font-size: 11px;
   }
   .challengeBadge {
-    font-size: 9px;
+    font-size: 11px;
   }
   .challengeCard form label {
-    font-size: 10px;
+    font-size: 11px;
   }
   .answerRow {
     grid-template-columns: minmax(0, 1fr) 38px;
@@ -700,7 +700,7 @@
     font-size: 14px;
   }
   .answerRow input::placeholder {
-    font-size: 9px;
+    font-size: 11px;
   }
   .answerRow button {
     width: 38px;
@@ -719,7 +719,7 @@
   }
   .rules li {
     padding: 4px 8px;
-    font-size: 10px;
+    font-size: 11px;
   }
   .scoreboard {
     gap: 9px;
@@ -740,7 +740,7 @@
     height: 17px;
   }
   .ruleToast strong {
-    font-size: 8px;
+    font-size: 11px;
   }
   .ruleToast p {
     font-size: 11px;
@@ -793,7 +793,7 @@
   border-radius: 8px;
   color: white;
   background: #dc9223;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -846,7 +846,7 @@
 }
 
 .successNote dt {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -953,7 +953,7 @@
 
 .syntax > span {
   color: #526c79;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -995,7 +995,7 @@
 
 .syntax small {
   color: #526c79;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -1085,7 +1085,7 @@
     margin-top: 6px;
   }
   .syntax > span {
-    font-size: 8px;
+    font-size: 11px;
   }
   .syntax li {
     height: 20px;
@@ -1095,14 +1095,194 @@
   .syntax kbd {
     font-size: 11px;
   }
-  .syntax small {
-    display: none;
-  }
   .pauseNote {
     padding: 18px 18px;
   }
   .challengeTopline {
     flex-wrap: wrap;
     gap: 4px 6px;
+  }
+}
+
+/* ── Tarjeta de inicio (el cronómetro aún no corre) ────────────────────── */
+
+.introCard {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100svh - 96px);
+  overflow-y: auto;
+  padding: 22px 26px 24px;
+  border-radius: 20px;
+  color: #385868;
+  background: rgba(255, 248, 223, 0.97);
+  box-shadow: 0 8px 0 #dfc58e;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.introEyebrow {
+  color: #99621c;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.introCard h1 {
+  margin: 4px 0 10px;
+  color: var(--accent-deep, var(--leaf));
+  font-size: clamp(28px, 4vw, 36px);
+  line-height: 1.1;
+}
+
+.introCard p {
+  margin: 10px 0 0;
+  color: #4f6670;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.introConcepts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.introConcepts li {
+  padding: 3px 9px;
+  border: 1px solid #ece3cd;
+  border-radius: 10px;
+  color: #4f6670;
+  background: #fffdf7;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.introCard .introClock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  color: #765015;
+  background: rgba(255, 244, 197, 0.96);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.introStart {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 17px;
+  color: #fff;
+  background: #ff9a4a;
+  box-shadow: 0 5px 0 #e47d32;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.introStart:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+/* La incógnita de una ecuación no se confunde con el signo ×. */
+.variable {
+  color: var(--accent-deep, #b9473e);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+}
+
+.compactMeta {
+  position: absolute;
+  z-index: 4;
+  top: 70px;
+  left: 12px;
+  display: none;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  box-shadow: 0 3px 10px rgba(67, 109, 115, 0.14);
+  border-radius: 10px;
+  color: var(--leaf);
+  background: rgba(255, 253, 247, 0.85);
+  font-size: 13px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.pauseNote .secondaryAction {
+  color: #446476;
+  background: #fffdf7;
+  box-shadow: 0 3px 0 var(--line);
+}
+
+@media (max-width: 600px) {
+  /* El progreso no cabe en la cabecera: «X/N» compacto (la versión completa queda para lectores de pantalla). */
+  .challengeMeta {
+    position: absolute;
+    display: block;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .compactMeta {
+    display: inline-block;
+  }
+  .worldName {
+    min-width: 0;
+  }
+  .worldName strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* El reloj va centrado bajo la cabecera y el reto empieza debajo: nada queda tapado. */
+  .timer {
+    top: 64px;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .challengeCard {
+    top: 116px;
+    width: max(50vw, 170px);
+    max-height: calc(100svh - 170px);
+    transform: translateX(-50%);
+  }
+  .introCard {
+    padding: 18px 18px 20px;
+  }
+  .introCard p {
+    font-size: 13px;
   }
 }

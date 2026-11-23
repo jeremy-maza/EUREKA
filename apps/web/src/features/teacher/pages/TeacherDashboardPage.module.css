@@ -15,7 +15,7 @@
   align-items: center;
   gap: 5px;
   color: #64828d;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.13em;
 }
@@ -56,14 +56,14 @@
 
 .demoSign span {
   color: #ad7b32;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.12em;
 }
 
 .demoSign strong {
   color: #7d7868;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .groupTrail {
@@ -79,7 +79,7 @@
   align-items: center;
   gap: 7px;
   color: #687c7e;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -122,7 +122,7 @@
 .mapHint {
   padding-bottom: 3px;
   color: #819092;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -306,19 +306,19 @@
   align-items: center;
   gap: 4px;
   color: #528469;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
 }
 
 .topicSign > b {
   color: #6a7370;
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .topicSign small {
   color: #868c83;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -438,7 +438,7 @@
 .topicCondition {
   display: inline-block;
   margin-top: 3px;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -462,7 +462,7 @@
 
 .noteErrors small {
   color: #887b66;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -485,7 +485,7 @@
 .frequencyText span,
 .noteList > strong {
   color: #857c69;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -505,7 +505,7 @@
   justify-content: space-between;
   gap: 8px;
   color: #596e70;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .noteList > span b {
@@ -525,7 +525,7 @@
 .explorersHeading p {
   margin: 5px 0 13px;
   color: #7c898c;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .explorerLayout {
@@ -584,7 +584,7 @@
   border-radius: 50%;
   color: #487282;
   background: #dceded;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -597,14 +597,14 @@
 .explorerInfo strong {
   overflow: hidden;
   color: #426170;
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .explorerInfo small {
   color: #87918c;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .statusWord {
@@ -612,7 +612,7 @@
   align-items: center;
   gap: 4px;
   color: #638576;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
 }
@@ -660,7 +660,7 @@
   color: #7d7868;
   background: #fffdf7;
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -709,7 +709,7 @@
 
 .journeyStats span {
   color: #748382;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .journeyStats b {
@@ -743,7 +743,7 @@
   align-items: center;
   gap: 4px;
   color: #5a7981;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -783,7 +783,7 @@
 
 .trailPointLabel {
   fill: #5c756c;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -791,7 +791,7 @@
   display: flex;
   justify-content: space-between;
   color: #8b9690;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .learningTopics {
@@ -808,7 +808,7 @@
   gap: 5px;
   margin: 0 0 7px;
   color: #588368;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .needsPractice h4 {
@@ -830,7 +830,7 @@
   border-bottom: 1px solid #b7d5b9;
   color: #4d795a;
   background: #eaf5e7;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -853,7 +853,7 @@
 .demoFootnote {
   margin: 10px 0 0;
   color: #929991;
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -877,7 +877,7 @@
     padding: 4px 0 4px 9px;
   }
   .demoSign strong {
-    font-size: 9px;
+    font-size: 11px;
   }
   .groupTrail {
     flex-wrap: wrap;
@@ -885,7 +885,7 @@
     padding: 7px 0 10px;
   }
   .groupTrail > span {
-    font-size: 9px;
+    font-size: 11px;
   }
   .mapSection {
     padding-top: 12px;
@@ -901,7 +901,7 @@
     font-size: 18px;
   }
   .mapHint {
-    font-size: 8px;
+    font-size: 11px;
   }
   .mapArea {
     height: auto;
@@ -945,17 +945,17 @@
     height: 20px;
   }
   .topicSign > strong {
-    font-size: 9px;
+    font-size: 11px;
   }
   .topicSign > span {
-    font-size: 7px;
+    font-size: 11px;
   }
   .topicSign > span svg {
     width: 11px;
     height: 11px;
   }
   .topicSign > b {
-    font-size: 8px;
+    font-size: 11px;
   }
   .mapIslandArt {
     width: min(172px, 100%);
@@ -1003,7 +1003,7 @@
   }
   .noteList > strong,
   .noteList > span {
-    font-size: 8px;
+    font-size: 11px;
   }
   .explorersSection {
     margin-top: 19px;
@@ -1011,7 +1011,7 @@
   }
   .explorersHeading p {
     margin-bottom: 9px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .explorerLayout {
     grid-template-columns: minmax(0, 1fr);
@@ -1033,18 +1033,18 @@
   .explorerInitial {
     width: 22px;
     height: 22px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .explorerInfo strong {
-    font-size: 9px;
+    font-size: 11px;
   }
   .explorerInfo small {
-    font-size: 8px;
+    font-size: 11px;
   }
   .statusWord {
     grid-column: 2;
     gap: 3px;
-    font-size: 7px;
+    font-size: 11px;
   }
   .statusWord::before {
     width: 5px;
@@ -1061,13 +1061,13 @@
     font-size: 14px;
   }
   .journeyHeader .statusWord {
-    font-size: 7px;
+    font-size: 11px;
   }
   .journeyStats {
     gap: 7px 12px;
   }
   .journeyStats span {
-    font-size: 8px;
+    font-size: 11px;
   }
   .journeyStats b {
     font-size: 12px;
@@ -1076,11 +1076,11 @@
     gap: 9px;
   }
   .learningTopics h4 {
-    font-size: 8px;
+    font-size: 11px;
   }
   .mastered > div > span,
   .needsPractice > div > span {
-    font-size: 7px;
+    font-size: 11px;
     padding: 4px 5px;
   }
 }
@@ -1094,7 +1094,7 @@
     height: 138px;
   }
   .topicSign > strong {
-    font-size: 8px;
+    font-size: 11px;
   }
   .explorerList {
     grid-template-columns: minmax(0, 1fr);
@@ -1116,4 +1116,12 @@
   .explorer {
     transition: none;
   }
+}
+
+.noteHint {
+  display: block;
+  margin: -2px 0 4px;
+  color: #5f6f78;
+  font-size: 11px;
+  font-weight: 700;
 }

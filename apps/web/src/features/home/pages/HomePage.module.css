@@ -303,7 +303,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--muted);
+  color: #5f6f78;
   font-size: 11px;
   font-weight: 800;
 }
@@ -311,12 +311,13 @@
 .metrics strong {
   display: block;
   margin-top: 3px;
-  color: var(--success);
+  /* --leaf: ≥ 3:1 para texto grande en negrita sobre crema (--success no llegaba). */
+  color: var(--leaf);
   font-size: 22px;
 }
 
 .metrics strong span {
-  color: var(--muted);
+  color: #5f6f78;
   font-size: 14px;
 }
 

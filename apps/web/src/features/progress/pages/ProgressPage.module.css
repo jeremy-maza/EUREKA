@@ -79,7 +79,7 @@
 .metrics strong {
   display: block;
   margin-top: 3px;
-  color: var(--success);
+  color: var(--leaf);
   font-size: 24px;
 }
 
@@ -185,7 +185,7 @@
   display: block;
   margin-bottom: 6px;
   color: #526c79;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
 }
@@ -289,7 +289,7 @@
 
 .ledger strong {
   min-width: 52px;
-  color: var(--success);
+  color: #2f6a3a;
   font-size: 16px;
 }
 

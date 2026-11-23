@@ -335,7 +335,7 @@ export function TeacherDashboardPage() {
         }))
       : (statistics?.challengesNeedingReinforcement ?? []).slice(0, 3).map((challenge) => ({
           key: `${challenge.worldSlug}-${challenge.position}-${challenge.expression}`,
-          label: `${worldLabel(worlds, challenge.worldSlug)} · Reto ${challenge.position} · ${challenge.expression}`,
+          label: `${worldLabel(worlds, challenge.worldSlug)} · Posición ${challenge.position} de la secuencia · ${challenge.expression}`,
           count: challenge.failures,
         }));
 
@@ -349,7 +349,7 @@ export function TeacherDashboardPage() {
       .sort((a, b) => a.position - b.position)
       .map((challenge) => ({
         key: `${world.worldSlug}-${challenge.position}-${challenge.expression}`,
-        label: `${world.worldName} · Reto ${challenge.position}`,
+        label: `${world.worldName} · Posición ${challenge.position} de la secuencia`,
       })),
   );
   const reinforcement = [
@@ -365,7 +365,7 @@ export function TeacherDashboardPage() {
         .filter((challenge) => challenge.failures > 0)
         .map((challenge) => ({
           key: `challenge-${world.worldSlug}-${challenge.position}-${challenge.expression}`,
-          label: `${world.worldName} · Reto ${challenge.position}`,
+          label: `${world.worldName} · Posición ${challenge.position} de la secuencia`,
           count: challenge.failures,
         })),
     ),
@@ -538,6 +538,11 @@ export function TeacherDashboardPage() {
                     <strong>
                       {activeReason.reason === 'RULE_VIOLATION' ? 'Reglas a practicar' : 'Retos a reforzar'}
                     </strong>
+                    {activeReason.reason !== 'RULE_VIOLATION' && (
+                      <small className={styles.noteHint}>
+                        Por posición en la secuencia: las reglas varían en cada secuencia.
+                      </small>
+                    )}
                     {practiceItems.length === 0 ? (
                       <span>Sin elementos para reforzar.</span>
                     ) : (
@@ -678,7 +683,9 @@ export function TeacherDashboardPage() {
                             </div>
                           </div>
                           <p className={styles.demoFootnote}>
-                            El recorrido usa los intentos más recientes registrados en el juego.
+                            El recorrido usa los intentos más recientes registrados en el juego. Las reglas y
+                            los retos se sortean en cada secuencia: «posición N» es el lugar del reto dentro
+                            de su secuencia, no un reto fijo.
                           </p>
                         </>
                       )}

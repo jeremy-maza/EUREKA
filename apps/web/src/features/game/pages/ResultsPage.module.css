@@ -94,7 +94,7 @@
 }
 
 .stats strong {
-  color: #3aab6a;
+  color: var(--leaf);
   font-size: 28px;
 }
 

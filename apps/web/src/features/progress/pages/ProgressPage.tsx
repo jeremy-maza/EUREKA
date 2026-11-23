@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Flame, Lock, Play, Sparkles, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import { isCompleted, pickDefaultWorld, progressOf, unlockHint, worldAccentStyle } from '@/lib/worlds';
+import { isCompleted, pickRecentWorld, progressOf, unlockHint, worldAccentStyle } from '@/lib/worlds';
 import { useWorldCatalog } from '@/lib/useWorldCatalog';
 import { api, ApiError } from '@/services/api/client';
 import type { AttemptHistoryItem, ScoreSummary, WorldProgress, WorldSummary } from '@/services/api/types';
@@ -50,7 +50,7 @@ export function ProgressPage() {
   }
   if (!catalog) return <ScreenMessage title="Cargando tu progreso…" />;
 
-  const slug = slugParam ?? pickDefaultWorld(catalog.worlds, catalog.progress);
+  const slug = slugParam ?? pickRecentWorld(catalog.worlds, catalog.progress);
   const world = catalog.worlds.find((item) => item.slug === slug);
   const progress = progressOf(catalog.progress, slug);
 

@@ -48,6 +48,23 @@ export function pickDefaultWorld(worlds: WorldSummary[], progress: WorldProgress
     : (sorted[0]?.slug ?? DEFAULT_WORLD_SLUG);
 }
 
+/**
+ * Mundo para «Mi progreso» y «Clasificaciones» sin mundo en la URL: el que el jugador ha jugado más (más puntos y, a
+ * igualdad, más intentos). La API no informa de la fecha del último intento por mundo, así que «más reciente» se
+ * aproxima así. Si aún no ha jugado ninguno, el más indicado para jugar.
+ */
+export function pickRecentWorld(worlds: WorldSummary[], progress: WorldProgress[]): string {
+  const played = sortWorlds(worlds)
+    .map((world) => ({ world, item: progressOf(progress, world.slug) }))
+    .filter(({ item }) => !!item && item.statistics.attemptsCount > 0)
+    .sort(
+      (a, b) =>
+        (b.item?.totalPoints ?? 0) - (a.item?.totalPoints ?? 0) ||
+        (b.item?.statistics.attemptsCount ?? 0) - (a.item?.statistics.attemptsCount ?? 0),
+    );
+  return played[0]?.world.slug ?? pickDefaultWorld(worlds, progress);
+}
+
 export const unlockHint = (requirement: WorldProgress['unlockRequirement']) =>
   requirement
     ? `Completa el Mundo ${requirement.position} (${requirement.worldName}) para desbloquear.`

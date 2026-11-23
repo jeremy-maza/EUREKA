@@ -227,17 +227,21 @@ describe('panel docente', () => {
     });
     renderApp('/docente');
 
-    expect(await screen.findByText('Mundo 2 · Reto 6 · -3 * 4')).toBeInTheDocument();
-    expect(screen.getByText('Mundo 1 · Reto 2 · 3 * 7')).toBeInTheDocument();
+    expect(await screen.findByText('Mundo 2 · Posición 6 de la secuencia · -3 * 4')).toBeInTheDocument();
+    expect(screen.getByText('Mundo 1 · Posición 2 de la secuencia · 3 * 7')).toBeInTheDocument();
     const article = await journey('Luis');
     const mastered = within(
       (await within(article).findByRole('heading', { name: /Islas dominadas/ })).parentElement as HTMLElement,
     );
     // Ordenados por mundo (posición) y por reto; un mismo número de reto en dos mundos no se confunde.
-    expect(mastered.getAllByText(/· Reto/).map((item) => item.textContent)).toEqual([
-      'Aritmética · Reto 1',
-      'Números y signos · Reto 1',
+    expect(mastered.getAllByText(/· Posición/).map((item) => item.textContent)).toEqual([
+      'Aritmética · Posición 1 de la secuencia',
+      'Números y signos · Posición 1 de la secuencia',
     ]);
-    expect(within(article).getByText('Números y signos · Reto 6')).toBeInTheDocument();
+    expect(within(article).getByText('Números y signos · Posición 6 de la secuencia')).toBeInTheDocument();
+    expect(article).toHaveTextContent('Las reglas y los retos se sortean en cada secuencia');
+    expect(
+      screen.getByText('Por posición en la secuencia: las reglas varían en cada secuencia.'),
+    ).toBeInTheDocument();
   });
 });

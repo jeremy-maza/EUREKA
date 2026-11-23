@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Check, Clock, Lock, RotateCcw, Send, Sparkles, Trash2 } from 'lucide-react';
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  Check,
+  Clock,
+  Lock,
+  Map as MapIcon,
+  Play,
+  RotateCcw,
+  Send,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DEFAULT_WORLD_SLUG, worldAccentStyle } from '@/lib/worlds';
 import { FloatingIsland } from '@/components/ui/FloatingIsland';
@@ -44,8 +55,34 @@ const formatTime = (seconds: number) => {
   return `${minutes}:${remainingSeconds}`;
 };
 
-/** Solo presentación: el servidor usa `*` y `/`, pero también acepta `×` y `÷`. */
-const formatExpression = (expression: string) => expression.replace(/\*/g, '×').replace(/\//g, '÷');
+/**
+ * Solo presentación: el servidor usa `*` y `/`, pero también acepta `×` y `÷`. En los mundos con decimales (fracciones)
+ * se mantiene `/` para que `1/2` se lea como fracción, igual que en las reglas y el historial.
+ */
+const formatExpression = (expression: string, syntax: MathSyntax | undefined) => {
+  const withTimes = expression.replace(/\*/g, '×');
+  return syntax?.decimals ? withTimes : withTimes.replace(/\//g, '÷');
+};
+
+/** En una ecuación, la incógnita `x` se distingue visualmente del signo `×`. */
+function renderStatement(statement: string, isEquation: boolean, variableClass: string) {
+  if (!isEquation) return statement;
+  return statement.split(/(x)/).map((part, index) =>
+    part === 'x' ? (
+      <var key={index} className={variableClass}>
+        x
+      </var>
+    ) : (
+      part
+    ),
+  );
+}
+
+/** Pista local para el único error obvio de las ecuaciones: escribir la incógnita en la respuesta. */
+export const EQUATION_X_HINT =
+  'No escribas la x: escribe solo una expresión que valga x (por ejemplo 7 * 2).';
+
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** Símbolos que acepta el servidor en este mundo (además de los dígitos). Solo informativo: valida el servidor. */
 type SyntaxChip = { symbol: string; name: string; word?: string };
@@ -100,8 +137,31 @@ const backgroundFor = (slug: string) =>
 const errorMessage = (error: unknown) =>
   error instanceof ApiError ? error.message : 'Ocurrió un error inesperado. Inténtalo de nuevo.';
 
-type Phase = 'loading' | 'error' | 'ready' | 'missing' | 'locked';
-type LockInfo = { message: string; requirement: WorldProgress['unlockRequirement'] };
+/** `intro`: sesión abierta sin reto en curso; el cronómetro no empieza hasta pulsar «Empezar desafío». */
+type Phase = 'loading' | 'error' | 'intro' | 'ready' | 'missing' | 'locked';
+/** `target`: el mundo desbloqueado más cercano en la cadena de requisitos (el que se puede jugar ya). */
+type LockInfo = { message: string; target: WorldRef | null };
+/** Por qué se abre la sesión: al entrar, al pedir otra secuencia o para volver a sincronizarse con el servidor. */
+type RunMode = 'enter' | 'restart' | 'resync';
+type RunResult = 'intro' | 'ready' | null;
+
+/**
+ * Sigue la cadena de requisitos de desbloqueo (datos del servidor) hasta el primer mundo desbloqueado: si el mundo
+ * que hay que completar también está bloqueado, se recomienda el anterior, y así sucesivamente.
+ */
+function nearestUnlocked(slug: string, progress: WorldProgress[]): WorldRef | null {
+  const seen = new Set<string>();
+  let requirement = progress.find((item) => item.worldSlug === slug)?.unlockRequirement ?? null;
+  while (requirement && !seen.has(requirement.worldSlug)) {
+    seen.add(requirement.worldSlug);
+    const required = progress.find((item) => item.worldSlug === requirement?.worldSlug);
+    if (!required || required.unlocked !== false) {
+      return { slug: requirement.worldSlug, name: requirement.worldName, position: requirement.position };
+    }
+    requirement = required.unlockRequirement;
+  }
+  return null;
+}
 type Entry = { phase: Phase; world: WorldSummary | null; lock?: LockInfo; error?: string };
 
 /** Partida en el mundo de la URL (`/juego/:slug`). Se vuelve a montar al cambiar de mundo. */
@@ -116,6 +176,10 @@ function WorldGame({ slug }: { slug: string }) {
   const [loadError, setLoadError] = useState('');
   const [world, setWorld] = useState<WorldSummary | null>(null);
   const [lockInfo, setLockInfo] = useState<LockInfo | null>(null);
+  /** Progreso al abrir la sesión sin reto en curso (para la tarjeta de inicio). */
+  const [introProgress, setIntroProgress] = useState<WorldProgress | null>(null);
+  const [introError, setIntroError] = useState<string | null>(null);
+  const [showXHint, setShowXHint] = useState(false);
   const [attempt, setAttempt] = useState<ChallengeAttempt | null>(null);
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
   const [deadline, setDeadline] = useState<number | null>(null);
@@ -136,6 +200,8 @@ function WorldGame({ slug }: { slug: string }) {
   const [answer, setAnswer] = useState('');
   const answerInputRef = useRef<HTMLInputElement>(null);
   const restartButtonRef = useRef<HTMLButtonElement>(null);
+  const startButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [feedback, setFeedback] = useState<Feedback>('idle');
   const [discoveredRule, setDiscoveredRule] = useState<Rule | null>(null);
   const [isRuleToastLeaving, setIsRuleToastLeaving] = useState(false);
@@ -150,8 +216,16 @@ function WorldGame({ slug }: { slug: string }) {
   const attemptRef = useRef<ChallengeAttempt | null>(null);
   /** Reglas dominadas según el último progreso recibido del servidor. */
   const masteredRef = useRef<WorldProgress['unlockedRules']>([]);
+  /** Reto vencido del que ya se avisó (o que se mostró como «tiempo agotado»): no se vuelve a anunciar. */
+  const notifiedTimeoutRef = useRef<string | null>(null);
   const backgroundUrl = backgroundFor(slug);
-  const route = routeFor(attempt?.challengeCount ?? 4, !!backgroundUrl);
+  const sequenceLength =
+    attempt?.challengeCount ??
+    introProgress?.activeSequence?.challengeCount ??
+    introProgress?.challengeCount ??
+    world?.challengeCount ??
+    4;
+  const route = routeFor(sequenceLength, !!backgroundUrl);
 
   const isGameOver = failure !== null;
   const isBusy = isSubmitting || isLoadingNext || isRestarting || isSettlingTimeout;
@@ -173,6 +247,9 @@ function WorldGame({ slug }: { slug: string }) {
       setSuccess(null);
       setRestartError(null);
       setSubmitError(null);
+      setShowXHint(false);
+      setIntroProgress(null);
+      setIntroError(null);
       setHasJumped(false);
       if (syncPlatform) {
         setPlayerPlatform(platformForPosition(next.position, routeFor(next.challengeCount, !!backgroundUrl)));
@@ -196,23 +273,66 @@ function WorldGame({ slug }: { slug: string }) {
     });
   }, []);
 
-  /** Abre (o reanuda) la sesión del mundo y el reto actual. Devuelve `false` si una carga más reciente la reemplazó. */
-  const startRun = useCallback(async () => {
-    const runId = ++runRef.current;
-    const { session, expiredAttempt } = await api.startSession(slug);
-    const first = await api.startAttempt(session.id);
-    const progress = await api.worldProgress(slug);
-    if (runRef.current !== runId) return false;
-    sessionIdRef.current = session.id;
-    completedRef.current = false;
-    nextWorldRef.current = null;
-    applyScore(progress);
-    applyAttempt(first, true);
-    // Un reto que venció mientras el jugador estaba ausente lo cierra el servidor al entrar: se le avisa.
+  const applyExpiredNotice = useCallback((visible: boolean) => {
     setIsExpiredNoticeLeaving(false);
-    setHasExpiredNotice(expiredAttempt !== null);
-    return true;
-  }, [applyAttempt, applyScore, slug]);
+    setHasExpiredNotice(visible);
+  }, []);
+
+  /** Sin reto en curso: tarjeta de inicio, con el grillo en la isla de la posición actual. */
+  const applyIntro = useCallback(
+    (progress: WorldProgress) => {
+      attemptRef.current = null;
+      setAttempt(null);
+      setDeadline(null);
+      setFailure(null);
+      setSuccess(null);
+      setFeedback('idle');
+      setDiscoveredRule(null);
+      setIntroProgress(progress);
+      setIntroError(null);
+      setPlayerPlatform(
+        platformForPosition(
+          progress.activeSequence ? progress.currentPosition : 1,
+          routeFor(progress.activeSequence?.challengeCount ?? progress.challengeCount, !!backgroundUrl),
+        ),
+      );
+    },
+    [backgroundUrl],
+  );
+
+  /**
+   * Abre (o reanuda) la sesión del mundo. Si hay un reto en curso (`pendingAttemptId`) se reanuda; si no, se muestra la
+   * tarjeta de inicio y el reto (y su cronómetro) solo empieza al pulsar «Empezar desafío». Pedir otra secuencia
+   * (`restart`) es una decisión explícita del jugador: ahí el reto empieza directamente.
+   * Devuelve `null` si una carga más reciente la reemplazó.
+   */
+  const startRun = useCallback(
+    async (mode: RunMode): Promise<RunResult> => {
+      const runId = ++runRef.current;
+      const { session, expiredAttempt } = await api.startSession(slug);
+      const progress = await api.worldProgress(slug);
+      const resume = mode === 'restart' || !!progress.pendingAttemptId;
+      const first = resume ? await api.startAttempt(session.id) : null;
+      if (runRef.current !== runId) return null;
+      sessionIdRef.current = session.id;
+      completedRef.current = false;
+      nextWorldRef.current = null;
+      applyScore(progress);
+      // Un reto que venció mientras el jugador no estaba: el servidor lo informa al abrir la sesión. Solo se avisa al
+      // entrar y una vez por reto (no tras el «tiempo agotado» que ya se mostró en la partida).
+      const notify =
+        mode === 'enter' && !!expiredAttempt && expiredAttempt.attemptId !== notifiedTimeoutRef.current;
+      if (notify) notifiedTimeoutRef.current = expiredAttempt.attemptId;
+      if (notify || mode !== 'resync') applyExpiredNotice(notify);
+      if (first) {
+        applyAttempt(first, true);
+        return 'ready';
+      }
+      applyIntro(progress);
+      return 'intro';
+    },
+    [applyAttempt, applyScore, applyExpiredNotice, applyIntro, slug],
+  );
 
   /**
    * Entrada al mundo: primero se comprueba que exista; después se abre la sesión. Un mundo bloqueado lo rechaza el
@@ -225,15 +345,15 @@ function WorldGame({ slug }: { slug: string }) {
       const worlds = await api.worlds();
       found = worlds.find((item) => item.slug === slug) ?? null;
       if (!found) return { phase: 'missing', world: null };
-      const applied = await startRun();
-      return applied ? { phase: 'ready', world: found } : null;
+      const result = await startRun('enter');
+      return result ? { phase: result, world: found } : null;
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
-        const requirement = await api
-          .worldProgress(slug)
-          .then((progress) => progress.unlockRequirement ?? null)
+        const target = await api
+          .progress()
+          .then((progress) => nearestUnlocked(slug, progress))
           .catch(() => null);
-        return { phase: 'locked', world: found, lock: { message: error.message, requirement } };
+        return { phase: 'locked', world: found, lock: { message: error.message, target } };
       }
       return { phase: 'error', world: found, error: errorMessage(error) };
     }
@@ -268,6 +388,16 @@ function WorldGame({ slug }: { slug: string }) {
     if (isGameOver) restartButtonRef.current?.focus();
   }, [isGameOver]);
 
+  useEffect(() => {
+    if (phase === 'intro') startButtonRef.current?.focus();
+  }, [phase]);
+
+  /** Vuelve a leer el estado del servidor (otra pestaña, reto distinto…) sin empezar ningún reto por su cuenta. */
+  const resync = useCallback(async () => {
+    const result = await startRun('resync');
+    if (result) setPhase(result);
+  }, [startRun]);
+
   /**
    * El reloj local solo es informativo: al llegar a 0 se consulta al servidor, que decide si venció. Si lo cerró por
    * tiempo, el resultado y el progreso se leen del servidor (nada se liquida ni se calcula aquí). Solo una
@@ -286,7 +416,7 @@ function WorldGame({ slug }: { slug: string }) {
           setDeadline(Date.now() + current.remainingMs);
         } else {
           // El servidor trabaja con otro reto distinto del que se muestra: se vuelve a sincronizar todo.
-          await startRun();
+          await resync();
         }
         return;
       }
@@ -301,10 +431,11 @@ function WorldGame({ slug }: { slug: string }) {
         setDeadline(null);
         setRemainingSeconds(0);
         setSubmitError(null);
+        notifiedTimeoutRef.current = expectedAttempt.attemptId;
         setFailure(describeTimeout(progress, expectedAttempt.newRule, expectedAttempt.rules));
       } else {
         // Se cerró de otra forma (p. ej. se respondió desde otra pestaña): no es un timeout, se resincroniza.
-        await startRun();
+        await resync();
       }
     } catch (error) {
       setSubmitError(errorMessage(error));
@@ -313,7 +444,7 @@ function WorldGame({ slug }: { slug: string }) {
       settlingRef.current = false;
       setIsSettlingTimeout(false);
     }
-  }, [applyScore, startRun, slug]);
+  }, [applyScore, resync, slug]);
 
   useEffect(() => {
     if (deadline === null || phase !== 'ready' || isGameOver || feedback === 'success') return;
@@ -384,6 +515,15 @@ function WorldGame({ slug }: { slug: string }) {
       return;
     }
 
+    // Única validación local: en una ecuación, escribir la incógnita es un error de sintaxis seguro que terminaría la
+    // secuencia. Todo lo demás lo valida el servidor.
+    if (attempt.statementKind === 'EQUATION' && /x/i.test(answer)) {
+      setShowXHint(true);
+      setFeedback('error');
+      answerInputRef.current?.focus();
+      return;
+    }
+
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -407,7 +547,7 @@ function WorldGame({ slug }: { slug: string }) {
         // El reto ya se resolvió con otra respuesta (otra pestaña): se vuelve a sincronizar con el servidor.
         setIsLoadingNext(true);
         try {
-          await startRun();
+          await resync();
         } catch (syncError) {
           setSubmitError(errorMessage(syncError));
         } finally {
@@ -457,11 +597,52 @@ function WorldGame({ slug }: { slug: string }) {
     setIsRestarting(true);
     setRestartError(null);
     try {
-      await startRun();
+      const result = await startRun('restart');
+      if (result) setPhase(result);
     } catch (error) {
       setRestartError(errorMessage(error));
     } finally {
       setIsRestarting(false);
+    }
+  };
+
+  /** Empieza el reto (y su cronómetro) desde la tarjeta de inicio. */
+  const beginChallenge = async () => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId || isLoadingNext) return;
+    setIsLoadingNext(true);
+    setIntroError(null);
+    try {
+      applyAttempt(await api.startAttempt(sessionId), true);
+      setPhase('ready');
+    } catch (error) {
+      setIntroError(errorMessage(error));
+    } finally {
+      setIsLoadingNext(false);
+    }
+  };
+
+  const goToMap = () => navigate('/');
+
+  /** Diálogo de fin de secuencia: el foco no sale de él (Tab cicla) y Escape vuelve al mapa sin empezar ningún reto. */
+  const handleDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      goToMap();
+      return;
+    }
+    if (event.key !== 'Tab' || !dialogRef.current) return;
+    const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !dialogRef.current.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !dialogRef.current.contains(active))) {
+      event.preventDefault();
+      first.focus();
     }
   };
 
@@ -484,16 +665,21 @@ function WorldGame({ slug }: { slug: string }) {
   }
 
   if (phase === 'locked') {
-    const requirement = lockInfo?.requirement ?? null;
+    const target = lockInfo?.target ?? null;
     return (
       <ScreenMessage title={world ? `El Mundo ${world.position} está bloqueado` : 'Mundo bloqueado'}>
         <span className={styles.lockedEmblem} aria-hidden="true">
           <Lock size={22} />
         </span>
         <p>{lockInfo?.message}</p>
-        {requirement && (
-          <button type="button" onClick={() => navigate(`/juego/${requirement.worldSlug}`)}>
-            Ir al Mundo {requirement.position}
+        {target && (
+          <p>
+            Puedes empezar por el Mundo {target.position} ({target.name}).
+          </p>
+        )}
+        {target && (
+          <button type="button" onClick={() => navigate(`/juego/${target.slug}`)}>
+            Ir al Mundo {target.position}
           </button>
         )}{' '}
         <button type="button" onClick={() => navigate('/')}>
@@ -503,7 +689,7 @@ function WorldGame({ slug }: { slug: string }) {
     );
   }
 
-  if (phase === 'error' || !attempt) {
+  if (phase === 'error' || (phase === 'ready' && !attempt) || (phase === 'intro' && !introProgress)) {
     return (
       <ScreenMessage title="No pudimos cargar el juego">
         <p>{loadError}</p>
@@ -517,18 +703,29 @@ function WorldGame({ slug }: { slug: string }) {
     );
   }
 
-  const timeLimit = attempt.timeLimitSeconds;
+  const timeLimit = attempt?.timeLimitSeconds ?? 1;
   const timerLevel = remainingSeconds <= 5 ? 'red' : remainingSeconds <= 10 ? 'yellow' : 'green';
-  const statement = formatExpression(attempt.expression);
-  const isEquation = attempt.statementKind === 'EQUATION';
+  const isEquation = attempt?.statementKind === 'EQUATION';
+  const statement = attempt ? formatExpression(attempt.expression, attempt.syntax ?? world?.syntax) : '';
   const instruction =
-    attempt.instruction?.trim() ||
+    attempt?.instruction?.trim() ||
     (isEquation
       ? 'Escribe una expresión que valga x y cumpla todas las reglas'
       : 'Escribe una expresión con el mismo resultado que cumpla todas las reglas');
-  const chips = syntaxChips(attempt.syntax ?? world?.syntax);
+  const chips = syntaxChips(attempt?.syntax ?? world?.syntax);
   const worldPosition = world?.position ?? 1;
   const keptRuleCount = failure?.kept.ruleCount;
+  const introSequence = introProgress?.activeSequence ?? null;
+  /** Posición y longitud de la secuencia que se muestran (del reto en curso o de la secuencia activa). */
+  const meta = attempt
+    ? { position: attempt.position, count: attempt.challengeCount }
+    : introSequence && introProgress
+      ? { position: introProgress.currentPosition, count: introSequence.challengeCount }
+      : null;
+  const describedBy = ['challenge-instruction', isEquation ? 'equation-hint' : '', showXHint ? 'x-hint' : '']
+    .concat('allowed-symbols')
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <main className={styles.page} style={worldAccentStyle(slug, worldPosition)}>
@@ -537,25 +734,28 @@ function WorldGame({ slug }: { slug: string }) {
         <div className={styles.worldName}>
           <span className={styles.worldDot} />
           <span>MUNDO {worldPosition}</span>
-          <strong>{world?.name ?? attempt.worldSlug}</strong>
+          <strong>{world?.name ?? slug}</strong>
         </div>
         <div className={styles.challengeMeta}>
-          <span>
-            Desafío <strong>{attempt.position}</strong> de {attempt.challengeCount}
-          </span>
-          <div
-            className={styles.progressBar}
-            aria-label={`Progreso ${attempt.position} de ${attempt.challengeCount}`}
-          >
-            {Array.from({ length: attempt.challengeCount }, (_, index) => (
-              <i key={index} className={index < attempt.position ? styles.complete : ''} />
-            ))}
-          </div>
+          {meta ? (
+            <>
+              <span>
+                Desafío <strong>{meta.position}</strong> de {meta.count}
+              </span>
+              <div className={styles.progressBar} aria-label={`Progreso ${meta.position} de ${meta.count}`}>
+                {Array.from({ length: meta.count }, (_, index) => (
+                  <i key={index} className={index < meta.position ? styles.complete : ''} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <span>Nueva secuencia</span>
+          )}
         </div>
         <div className={styles.actions}>
           <button
             type="button"
-            onClick={() => navigate('/')}
+            onClick={goToMap}
             aria-label="Volver al inicio"
             disabled={feedback === 'success' || isBusy}
           >
@@ -564,30 +764,38 @@ function WorldGame({ slug }: { slug: string }) {
         </div>
       </header>
 
-      <div
-        className={`${styles.timer} ${remainingSeconds <= 5 ? styles.timerUrgent : ''}`}
-        data-level={timerLevel}
-        role="timer"
-        aria-label={`Tiempo restante ${formatTime(remainingSeconds)}`}
-      >
-        <div className={styles.timerReadout}>
-          <span>TIEMPO</span>
-          <strong>{formatTime(remainingSeconds)}</strong>
-        </div>
+      {meta && (
+        <span className={styles.compactMeta} aria-hidden="true">
+          {meta.position}/{meta.count}
+        </span>
+      )}
+
+      {attempt && (
         <div
-          className={styles.timerTrack}
-          role="progressbar"
-          aria-label="Tiempo restante"
-          aria-valuemin={0}
-          aria-valuemax={timeLimit}
-          aria-valuenow={remainingSeconds}
+          className={`${styles.timer} ${remainingSeconds <= 5 ? styles.timerUrgent : ''}`}
+          data-level={timerLevel}
+          role="timer"
+          aria-label={`Tiempo restante ${formatTime(remainingSeconds)}`}
         >
-          <span
-            className={styles.timerProgress}
-            style={{ width: `${Math.min((remainingSeconds / timeLimit) * 100, 100)}%` }}
-          />
+          <div className={styles.timerReadout}>
+            <span>TIEMPO</span>
+            <strong>{formatTime(remainingSeconds)}</strong>
+          </div>
+          <div
+            className={styles.timerTrack}
+            role="progressbar"
+            aria-label="Tiempo restante"
+            aria-valuemin={0}
+            aria-valuemax={timeLimit}
+            aria-valuenow={remainingSeconds}
+          >
+            <span
+              className={styles.timerProgress}
+              style={{ width: `${Math.min((remainingSeconds / timeLimit) * 100, 100)}%` }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <section className={styles.layout}>
         <aside
@@ -611,147 +819,194 @@ function WorldGame({ slug }: { slug: string }) {
           </div>
         </aside>
 
-        <article className={styles.challengeCard}>
-          <div className={styles.challengeTopline}>
-            <span className={styles.challengeBadge}>
-              <Sparkles size={16} /> {isEquation ? 'ECUACIÓN' : 'DESAFÍO'}
-            </span>
-            {attempt.difficulty && <DifficultyBadge level={attempt.difficulty} />}
-          </div>
-          <h1
-            data-long={statement.length > 8}
-            aria-label={isEquation ? `Resuelve: ${statement}` : `Operación ${statement}`}
-          >
-            {isEquation && <span className={styles.statementLead}>Resuelve:</span>}
-            {statement}
-          </h1>
-          <p id="challenge-instruction">{instruction}</p>
-
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void checkAnswer();
-            }}
-          >
-            <label htmlFor="answer">Tu respuesta</label>
-            <div
-              className={`${styles.answerRow} ${isEquation ? styles.equationRow : ''} ${feedback === 'error' ? styles.answerError : ''}`}
-            >
-              {isEquation && (
-                <span className={styles.answerPrefix} aria-hidden="true">
-                  x =
-                </span>
-              )}
-              <input
-                id="answer"
-                ref={answerInputRef}
-                inputMode="text"
-                autoCapitalize="off"
-                spellCheck={false}
-                maxLength={200}
-                value={answer}
-                aria-invalid={feedback === 'error'}
-                aria-describedby={`challenge-instruction${isEquation ? ' equation-hint' : ''} allowed-symbols`}
-                onChange={(event) => {
-                  setAnswer(event.target.value);
-                  if (feedback !== 'idle') setFeedback('idle');
-                }}
-                placeholder={isEquation ? 'Una expresión que valga x' : 'Tu respuesta'}
-                autoComplete="off"
-                disabled={feedback === 'success' || isBusy || isGameOver}
-              />
-              <button
-                type="submit"
-                aria-label="Enviar respuesta"
-                disabled={feedback === 'success' || isBusy || isGameOver}
-              >
-                <Send size={18} />
-              </button>
-            </div>
-            {isEquation && (
-              <p id="equation-hint" className={styles.equationHint}>
-                Tu respuesta es una expresión cuyo valor es x.
-              </p>
-            )}
-            <div className={styles.syntax} id="allowed-symbols">
-              <span>Puedes usar</span>
-              <ul aria-label="Símbolos permitidos">
-                {chips.map((chip) => (
-                  <li key={chip.symbol} title={chip.name}>
-                    <kbd aria-hidden="true">{chip.symbol}</kbd>
-                    {chip.word && <small aria-hidden="true">{chip.word}</small>}
-                    <span className="sr-only">{chip.name}</span>
-                  </li>
+        {!attempt && introProgress && (
+          <article className={styles.introCard} aria-labelledby="intro-title">
+            <span className={styles.introEyebrow}>MUNDO {worldPosition}</span>
+            <h1 id="intro-title">{world?.name ?? slug}</h1>
+            {world?.concepts && world.concepts.length > 0 ? (
+              <ul className={styles.introConcepts} aria-label="Conceptos">
+                {world.concepts.map((concept) => (
+                  <li key={concept}>{concept}</li>
                 ))}
               </ul>
-            </div>
-            {submitError && (
+            ) : (
+              world?.description && <p>{world.description}</p>
+            )}
+            <p>
+              {introSequence
+                ? `Tu secuencia sigue en el desafío ${introProgress.currentPosition} de ${introSequence.challengeCount}.`
+                : 'Una nueva secuencia sorteará sus reglas: supera todos los desafíos para completar el mundo.'}
+            </p>
+            <p className={styles.introClock}>
+              <Clock size={15} aria-hidden="true" /> El cronómetro empieza al pulsar «Empezar desafío».
+            </p>
+            {introError && (
               <p className={styles.formError} role="alert">
-                {submitError}
+                {introError}
               </p>
             )}
-          </form>
-
-          {success && (
-            <div
-              className={styles.successNote}
-              role="status"
-              aria-live="polite"
-              aria-label="Resultado del intento"
+            <button
+              ref={startButtonRef}
+              type="button"
+              className={styles.introStart}
+              onClick={() => void beginChallenge()}
+              disabled={isLoadingNext}
             >
-              <strong>
-                <Check size={15} aria-hidden="true" /> {success.message}
-              </strong>
-              <dl>
-                <div>
-                  <dt>Puntos ganados</dt>
-                  <dd>+{success.points}</dd>
-                </div>
-                <div>
-                  <dt>Multiplicador</dt>
-                  <dd>×{success.multiplier}</dd>
-                </div>
-                <div>
-                  <dt>Racha</dt>
-                  <dd>{success.streak}</dd>
-                </div>
-              </dl>
-              {success.unlockedRule && (
-                <p>
-                  Regla superada: {success.unlockedRule.description} Ya forma parte de tus reglas dominadas.
+              <Play size={17} fill="currentColor" aria-hidden="true" />
+              {isLoadingNext ? 'Preparando desafío…' : 'Empezar desafío'}
+            </button>
+          </article>
+        )}
+
+        {attempt && (
+          <article className={styles.challengeCard}>
+            <div className={styles.challengeTopline}>
+              <span className={styles.challengeBadge}>
+                <Sparkles size={16} /> {isEquation ? 'ECUACIÓN' : 'DESAFÍO'}
+              </span>
+              {attempt.difficulty && <DifficultyBadge level={attempt.difficulty} />}
+            </div>
+            <h1
+              data-long={statement.length > 8}
+              aria-label={isEquation ? `Resuelve: ${statement}` : `Operación ${statement}`}
+            >
+              {isEquation && <span className={styles.statementLead}>Resuelve:</span>}
+              {renderStatement(statement, isEquation, styles.variable)}
+            </h1>
+            <p id="challenge-instruction">{instruction}</p>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void checkAnswer();
+              }}
+            >
+              <label htmlFor="answer">Tu respuesta</label>
+              <div
+                className={`${styles.answerRow} ${isEquation ? styles.equationRow : ''} ${feedback === 'error' ? styles.answerError : ''}`}
+              >
+                {isEquation && (
+                  <span className={styles.answerPrefix} aria-hidden="true">
+                    <var className={styles.variable}>x</var> =
+                  </span>
+                )}
+                <input
+                  id="answer"
+                  ref={answerInputRef}
+                  inputMode="text"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  maxLength={200}
+                  value={answer}
+                  aria-invalid={feedback === 'error'}
+                  aria-describedby={describedBy}
+                  onChange={(event) => {
+                    setAnswer(event.target.value);
+                    if (feedback !== 'idle') setFeedback('idle');
+                    if (showXHint) setShowXHint(false);
+                  }}
+                  placeholder={isEquation ? 'Una expresión que valga x' : 'Tu respuesta'}
+                  autoComplete="off"
+                  disabled={feedback === 'success' || isBusy || isGameOver}
+                />
+                <button
+                  type="submit"
+                  aria-label="Enviar respuesta"
+                  disabled={feedback === 'success' || isBusy || isGameOver}
+                >
+                  <Send size={18} />
+                </button>
+              </div>
+              {isEquation && (
+                <p id="equation-hint" className={styles.equationHint}>
+                  Tu respuesta es una expresión cuyo valor es x.
                 </p>
               )}
-              {success.worldCompleted && <p>¡Completaste el Mundo {worldPosition}!</p>}
-              {success.nextWorldUnlocked && (
-                <p className={styles.unlockNote}>
-                  <Sparkles size={14} aria-hidden="true" /> Desbloqueaste el Mundo{' '}
-                  {success.nextWorldUnlocked.position}: {success.nextWorldUnlocked.name}.
+              {showXHint && (
+                <p id="x-hint" className={styles.formError} role="alert">
+                  {EQUATION_X_HINT}
+                </p>
+              )}
+              <div className={styles.syntax} id="allowed-symbols">
+                <span>Puedes usar</span>
+                <ul aria-label="Símbolos permitidos">
+                  {chips.map((chip) => (
+                    <li key={chip.symbol} title={chip.name}>
+                      <kbd aria-hidden="true">{chip.symbol}</kbd>
+                      {chip.word && <small aria-hidden="true">{chip.word}</small>}
+                      <span className="sr-only">{chip.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {submitError && (
+                <p className={styles.formError} role="alert">
+                  {submitError}
+                </p>
+              )}
+            </form>
+
+            {success && (
+              <div
+                className={styles.successNote}
+                role="status"
+                aria-live="polite"
+                aria-label="Resultado del intento"
+              >
+                <strong>
+                  <Check size={15} aria-hidden="true" /> {success.message}
+                </strong>
+                <dl>
+                  <div>
+                    <dt>Puntos ganados</dt>
+                    <dd>+{success.points}</dd>
+                  </div>
+                  <div>
+                    <dt>Multiplicador</dt>
+                    <dd>×{success.multiplier}</dd>
+                  </div>
+                  <div>
+                    <dt>Racha</dt>
+                    <dd>{success.streak}</dd>
+                  </div>
+                </dl>
+                {success.unlockedRule && (
+                  <p>
+                    Regla superada: {success.unlockedRule.description} Ya forma parte de tus reglas dominadas.
+                  </p>
+                )}
+                {success.worldCompleted && <p>¡Completaste el Mundo {worldPosition}!</p>}
+                {success.nextWorldUnlocked && (
+                  <p className={styles.unlockNote}>
+                    <Sparkles size={14} aria-hidden="true" /> Desbloqueaste el Mundo{' '}
+                    {success.nextWorldUnlocked.position}: {success.nextWorldUnlocked.name}.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className={styles.ruleBlock}>
+              <ul className={styles.rules} aria-label="Reglas activas">
+                {attempt.rules.map((rule) => {
+                  const isChallengeRule = rule.key === attempt.newRule?.key;
+                  return (
+                    <li key={rule.key} className={isChallengeRule ? styles.ruleNew : ''}>
+                      <span>{rule.description}</span>
+                      {isChallengeRule && <b className={styles.ruleTag}>Nueva</b>}
+                    </li>
+                  );
+                })}
+              </ul>
+              {attempt.rules.length > 0 && (
+                <p className={styles.ruleLegend}>
+                  {attempt.newRule
+                    ? 'La regla nueva se suma a las de esta secuencia. Si fallas, la secuencia termina y sus reglas se descartan.'
+                    : 'Son las reglas de esta secuencia. Si fallas, se descartan y la próxima secuencia sorteará otras.'}
                 </p>
               )}
             </div>
-          )}
-
-          <div className={styles.ruleBlock}>
-            <ul className={styles.rules} aria-label="Reglas activas">
-              {attempt.rules.map((rule) => {
-                const isChallengeRule = rule.key === attempt.newRule?.key;
-                return (
-                  <li key={rule.key} className={isChallengeRule ? styles.ruleNew : ''}>
-                    <span>{rule.description}</span>
-                    {isChallengeRule && <b className={styles.ruleTag}>Nueva</b>}
-                  </li>
-                );
-              })}
-            </ul>
-            {attempt.rules.length > 0 && (
-              <p className={styles.ruleLegend}>
-                {attempt.newRule
-                  ? 'La regla nueva se suma a las de esta secuencia. Si fallas, la secuencia termina y sus reglas se descartan.'
-                  : 'Son las reglas de esta secuencia. Si fallas, se descartan y la próxima secuencia sorteará otras.'}
-              </p>
-            )}
-          </div>
-        </article>
+          </article>
+        )}
       </section>
 
       {scoreboard && (
@@ -809,11 +1064,13 @@ function WorldGame({ slug }: { slug: string }) {
 
       {failure && (
         <div
+          ref={dialogRef}
           className={styles.pauseOverlay}
           role="dialog"
           aria-modal="true"
           aria-labelledby="failure-title"
           aria-describedby="failure-message"
+          onKeyDown={handleDialogKeyDown}
         >
           <div className={styles.pauseNote}>
             <h2 id="failure-title">{failure.title}</h2>
@@ -863,21 +1120,27 @@ function WorldGame({ slug }: { slug: string }) {
                   Tu racha vuelve a empezar: <strong>{failure.kept.streak}</strong>.
                 </li>
               </ul>
-              <p>La próxima secuencia sorteará reglas nuevas y empezará desde el desafío 1.</p>
+              <p>La próxima secuencia hará un nuevo sorteo de reglas y empezará desde el desafío 1.</p>
             </section>
             {restartError && (
               <p className={styles.formError} role="alert">
                 {restartError}
               </p>
             )}
-            <button
-              ref={restartButtonRef}
-              type="button"
-              onClick={() => void restartGame()}
-              disabled={isRestarting}
-            >
-              <RotateCcw size={16} /> {isRestarting ? 'Preparando secuencia…' : 'Nueva secuencia'}
-            </button>
+            <div className={styles.dialogActions}>
+              <button
+                ref={restartButtonRef}
+                type="button"
+                onClick={() => void restartGame()}
+                disabled={isRestarting}
+              >
+                <RotateCcw size={16} aria-hidden="true" />{' '}
+                {isRestarting ? 'Preparando secuencia…' : 'Nueva secuencia'}
+              </button>
+              <button type="button" className={styles.secondaryAction} onClick={goToMap}>
+                <MapIcon size={16} aria-hidden="true" /> Volver al mapa
+              </button>
+            </div>
           </div>
         </div>
       )}

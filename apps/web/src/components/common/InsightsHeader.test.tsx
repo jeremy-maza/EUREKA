@@ -61,6 +61,7 @@ describe('cabecera: "Jugar"', () => {
     const play = within(navigation()).getByRole('link', { name: 'Jugar' });
     expect(play).toHaveAttribute('href', '/juego');
     await userEvent.click(play);
+    await userEvent.click(await screen.findByRole('button', { name: 'Empezar desafío' }));
 
     expect(await screen.findByRole('heading', { name: 'Operación 3 × 7' })).toBeInTheDocument();
     // `/juego` lleva al mundo más indicado.
