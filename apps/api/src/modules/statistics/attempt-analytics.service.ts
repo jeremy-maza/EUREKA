@@ -12,7 +12,10 @@ export interface UserActivity {
 export interface CompletedChallengesRow {
   userId: string;
   worldId: string;
-  /** Retos DISTINTOS acertados al menos una vez (no cuenta repeticiones tras reiniciar la secuencia). */
+  /**
+   * Posiciones DISTINTAS de la secuencia superadas al menos una vez (los retos se generan por secuencia, así que se
+   * agrupan por posición; no cuenta repeticiones tras reiniciar la secuencia).
+   */
   distinctChallenges: number;
 }
 
@@ -22,9 +25,12 @@ export interface FailureReasonRow {
   count: number;
 }
 
+/** Resultados por posición de la secuencia (1 = primer reto). */
 export interface ChallengeOutcomeRow {
   worldId: string;
-  challengeId: string;
+  position: number;
+  /** Un enunciado presentado en esa posición (ejemplo representativo; cada secuencia genera los suyos). */
+  sampleExpression: string;
   attempts: number;
   correct: number;
 }
@@ -66,7 +72,7 @@ export class AttemptAnalyticsService {
   ): Promise<CompletedChallengesRow[]> {
     if (userIds.length === 0 || worldIds.length === 0) return [];
     const rows = await this.prisma.challengeAttempt.groupBy({
-      by: ['userId', 'worldId', 'challengeId'],
+      by: ['userId', 'worldId', 'position'],
       where: { userId: { in: [...userIds] }, worldId: { in: [...worldIds] }, outcome: 'CORRECT' },
     });
     const counts = new Map<string, CompletedChallengesRow>();
@@ -95,23 +101,26 @@ export class AttemptAnalyticsService {
   async challengeOutcomes(userIds: readonly string[]): Promise<ChallengeOutcomeRow[]> {
     if (userIds.length === 0) return [];
     const rows = await this.prisma.challengeAttempt.groupBy({
-      by: ['worldId', 'challengeId', 'outcome'],
+      by: ['worldId', 'position', 'outcome'],
       where: { userId: { in: [...userIds] }, outcome: { not: 'PENDING' } },
       _count: { _all: true },
+      _max: { expression: true },
     });
-    const byChallenge = new Map<string, ChallengeOutcomeRow>();
+    const byPosition = new Map<string, ChallengeOutcomeRow>();
     for (const row of rows) {
-      const entry = byChallenge.get(row.challengeId) ?? {
+      const id = `${row.worldId}:${row.position}`;
+      const entry = byPosition.get(id) ?? {
         worldId: row.worldId,
-        challengeId: row.challengeId,
+        position: row.position,
+        sampleExpression: row._max.expression ?? '',
         attempts: 0,
         correct: 0,
       };
       entry.attempts += row._count._all;
       if (row.outcome === 'CORRECT') entry.correct += row._count._all;
-      byChallenge.set(row.challengeId, entry);
+      byPosition.set(id, entry);
     }
-    return [...byChallenge.values()];
+    return [...byPosition.values()];
   }
 
   /**

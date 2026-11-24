@@ -1,3 +1,4 @@
+import { ALL_WORLDS } from '../../src/modules/worlds';
 import { UserRole } from '../../src/generated/prisma/client';
 import { assignTeacher, enrollStudent, makeGroup } from '../helpers/factories';
 import { createTestApp, Player, TestContext } from '../helpers/test-app';
@@ -98,7 +99,7 @@ describe('API del panel docente (HTTP + PostgreSQL)', () => {
         accuracyPercent: 66.7,
         averageCorrectResponseTimeMs: 7500,
         challengesCompleted: 2,
-        challengeCount: 4,
+        challengeCount: ALL_WORLDS[0].sequence.ruleCount.HARDER + 1, // posiciones posibles
       });
       expect(overview.body.totals).toMatchObject({ points: 250, attempts: 3, challengesCompleted: 2 });
       expect(overview.body.student).toEqual({ id: ana.userId, displayName: 'Ana', email: 'ana@example.com' });
@@ -132,14 +133,21 @@ describe('API del panel docente (HTTP + PostgreSQL)', () => {
         status: 'ACTIVE',
         activeStudentCount: 3,
       });
-      expect(dash.body.worlds).toEqual([
+      // Una fila por mundo (los cinco), en orden; solo el Mundo 1 tiene actividad.
+      expect(dash.body.worlds.map((w: { worldSlug: string }) => w.worldSlug)).toEqual(
+        ALL_WORLDS.map((w) => w.slug),
+      );
+      expect(dash.body.worlds[0]).toEqual(
         expect.objectContaining({
           worldSlug: 'arithmetic',
           studentsStarted: 2,
           studentsCompleted: 0,
           points: 350,
         }),
-      ]);
+      );
+      for (const world of dash.body.worlds.slice(1)) {
+        expect(world).toMatchObject({ studentsStarted: 0, points: 0, attempts: 0, accuracyPercent: null });
+      }
       expect(page.body.items.map((i: { student: { displayName: string } }) => i.student.displayName)).toEqual(
         ['Ana', 'Bea', 'Cy'],
       );
@@ -264,12 +272,13 @@ describe('API del panel docente (HTTP + PostgreSQL)', () => {
         consecutiveFailures: 3,
         points: 100,
       });
-      expect(world.challenges).toHaveLength(4);
+      // Una fila por posición posible (la secuencia más larga del mundo: dificultad intensa).
+      expect(world.challenges).toHaveLength(ALL_WORLDS[0].sequence.ruleCount.HARDER + 1);
       expect(world.challenges[0]).toMatchObject({ position: 1, attempts: 7, correct: 1, failures: 6 });
       expect(world.challenges[2]).toEqual({
         worldSlug: 'arithmetic',
         position: 3,
-        expression: '3 * 7 * 2 / 6',
+        expression: '', // sin intentos en esa posición: no hay enunciado de ejemplo
         attempts: 0,
         correct: 0,
         failures: 0,
@@ -404,6 +413,7 @@ describe('API del panel docente (HTTP + PostgreSQL)', () => {
       expect(overview.body.totals).toMatchObject({ attempts: 0, accuracyPercent: null });
       await ctx.prisma.challengeAttempt.deleteMany({ where: { userId: cy.userId } });
       await ctx.prisma.gameSession.deleteMany({ where: { userId: cy.userId } });
+      await ctx.prisma.gameSequence.deleteMany({ where: { userId: cy.userId } });
       await ctx.prisma.studentWorldProgress.deleteMany({ where: { userId: cy.userId } });
     });
   });

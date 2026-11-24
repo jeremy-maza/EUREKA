@@ -1,6 +1,6 @@
 import { ExpressionParser, Fraction, MathEvaluator, collectNumbers } from '../math';
 import { RuleDefinition, createDefaultRuleEngine } from '../rules';
-import { RuleConstraints, checkRuleCompatibility } from './rule-compatibility';
+import { RuleConstraints, checkRuleCompatibility, emptyRuleConstraints } from './rule-compatibility';
 import { SeededRandom } from './seeded-random';
 import { WitnessBuilder } from './witness-builder';
 
@@ -87,6 +87,7 @@ describe('WitnessBuilder — operación exigida con paréntesis explícitos', ()
 
   it('la división exigida entre cero no es construible (NO_WITNESS_FOUND)', () => {
     const constraints: RuleConstraints = {
+      ...emptyRuleConstraints(),
       rules: [mustUse('/', 7, 0)],
       forbiddenDigits: [],
       requiredOperations: [{ operator: '/', left: 7, right: 0 }],
@@ -136,6 +137,7 @@ describe('WitnessBuilder — dígitos prohibidos', () => {
 
   it('sin dígitos disponibles, o con un solo dígito inútil, devuelve NO_WITNESS_FOUND (no incompatibilidad)', () => {
     const noDigits: RuleConstraints = {
+      ...emptyRuleConstraints(),
       rules: [],
       forbiddenDigits: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
       requiredOperations: [],

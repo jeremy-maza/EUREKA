@@ -42,7 +42,7 @@ export class PlayerStateService {
     return this.progressView.build(this.prisma, userId, world);
   }
 
-  /** Reglas acumuladas del jugador en el mundo (las del reto en curso aún no cuentan hasta completarlo). */
+  /** Reglas DOMINADAS del jugador en el mundo (superadas alguna vez; las activas son de la secuencia). */
   async getUnlockedRules(userId: string, worldSlug: string): Promise<UnlockedRuleDto[]> {
     return (await this.getProgress(userId, worldSlug)).unlockedRules;
   }
@@ -78,11 +78,10 @@ export class PlayerStateService {
       where: { userId, worldId: world.id, ...(cursor ? { id: { lt: cursor } } : {}) },
       orderBy: { id: 'desc' },
       take: limit + 1,
-      include: { challenge: { select: { key: true } } },
     });
     const page = rows.slice(0, limit);
     return {
-      items: page.map((row) => toHistoryItem(row, world.definition)),
+      items: page.map(toHistoryItem),
       nextCursor: rows.length > limit ? page[page.length - 1].id : null,
     };
   }

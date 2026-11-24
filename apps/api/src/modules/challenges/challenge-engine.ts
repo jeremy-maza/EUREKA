@@ -1,11 +1,15 @@
 import { ChallengeDefinition, SolvabilityReport, SubmissionEvaluation } from './challenge.types';
 import {
+  DEFAULT_MATH_SYNTAX,
   DivisionByZeroError,
   ExpressionParser,
   ExpressionSyntaxError,
   Fraction,
+  InvalidPowerError,
   MathEvaluator,
+  MathSyntax,
   ParsedAnswer,
+  solveLinearEquation,
 } from './math';
 import { RuleDefinition, RuleEngine, RuleViolation, createDefaultRuleEngine } from './rules';
 
@@ -20,23 +24,39 @@ export interface EvaluateSubmissionInput {
   /** Reglas activas: las acumuladas por el jugador + la del reto actual. */
   activeRules: readonly RuleDefinition[];
   submission: string;
+  /** Sintaxis del mundo (decimales, potencias). Por defecto la del Mundo 1. */
+  syntax?: MathSyntax;
+}
+
+export function isEquation(challenge: Pick<ChallengeDefinition, 'statementKind'>): boolean {
+  return challenge.statementKind === 'EQUATION';
 }
 
 /**
  * Evalúa una respuesta frente a un reto. Mantiene separadas las dos responsabilidades:
- *   1. Matemática: parsear + evaluar (MathEvaluator).
+ *   1. Matemática: parsear + evaluar (MathEvaluator) con la sintaxis del mundo.
  *   2. Reglas: validar el AST contra las reglas activas (RuleEngine).
  * Es puro: no depende de HTTP, base de datos ni reloj (el tiempo lo gestiona `TimerManager`).
+ *
+ * Errores matemáticos del jugador → motivo de fallo (los valores los usa la BD, no se añaden nuevos):
+ *   sintaxis y potencias no evaluables (`InvalidPowerError`) → `SYNTAX_ERROR`; división entre cero →
+ *   `DIVISION_BY_ZERO`.
  */
 export class ChallengeEngine {
   constructor(private readonly deps: ChallengeEngineDependencies) {}
 
-  evaluateSubmission({ challenge, activeRules, submission }: EvaluateSubmissionInput): SubmissionEvaluation {
+  evaluateSubmission({
+    challenge,
+    activeRules,
+    submission,
+    syntax = DEFAULT_MATH_SYNTAX,
+  }: EvaluateSubmissionInput): SubmissionEvaluation {
     const { parser, evaluator, ruleEngine } = this.deps;
+    const equation = isEquation(challenge);
 
     let parsed: ParsedAnswer;
     try {
-      parsed = parser.parseAnswer(submission);
+      parsed = parser.parseAnswer(submission, syntax, { equation });
     } catch (error) {
       if (error instanceof ExpressionSyntaxError) {
         return failure('SYNTAX_ERROR', error.message);
@@ -51,6 +71,9 @@ export class ChallengeEngine {
       if (error instanceof DivisionByZeroError) {
         return failure('DIVISION_BY_ZERO', error.message);
       }
+      if (error instanceof InvalidPowerError) {
+        return failure('SYNTAX_ERROR', error.message);
+      }
       throw error;
     }
 
@@ -61,15 +84,18 @@ export class ChallengeEngine {
     if (!value.equals(expected)) {
       return failure(
         'WRONG_RESULT',
-        `Tu expresión vale ${value}, pero el resultado esperado es ${expected}.`,
+        equation
+          ? `Tu expresión vale ${value}, pero ese no es el valor de x que resuelve la ecuación.`
+          : `Tu expresión vale ${value}, pero no es el resultado de la operación.`,
         common,
       );
     }
 
-    if (parsed.claimedResult !== null && !Fraction.of(parsed.claimedResult).equals(value)) {
+    if (parsed.claimedValue !== null && !parsed.claimedValue.equals(value)) {
+      const claimed = parsed.claimedResult !== null ? parsed.claimedResult.toString() : parsed.claimedText;
       return failure(
         'CLAIMED_RESULT_MISMATCH',
-        `Escribiste "= ${parsed.claimedResult}", pero tu expresión vale ${value}.`,
+        `Escribiste "= ${claimed}", pero tu expresión vale ${value}.`,
         common,
       );
     }
@@ -82,17 +108,38 @@ export class ChallengeEngine {
   }
 
   /**
-   * Garantía de resolubilidad: el enunciado vale lo declarado y la solución de referencia
-   * cumple `rules` (normalmente todas las reglas del mundo).
+   * Valor exacto del enunciado: el de la expresión o, si es una ecuación, su solución única (resuelta
+   * de forma exacta; se rechazan las ecuaciones no lineales o sin solución única).
+   *
+   * @throws MathError si el enunciado no es evaluable/resoluble.
    */
-  verifySolvable(challenge: ChallengeDefinition, rules: readonly RuleDefinition[]): SolvabilityReport {
+  statementValue(
+    challenge: Pick<ChallengeDefinition, 'expression' | 'statementKind'>,
+    syntax: MathSyntax = DEFAULT_MATH_SYNTAX,
+  ): Fraction {
     const { parser, evaluator } = this.deps;
+    if (isEquation(challenge)) return solveLinearEquation(parser.parseEquation(challenge.expression, syntax));
+    return evaluator.evaluate(parser.parseExpression(challenge.expression, syntax));
+  }
 
+  /**
+   * Garantía de resolubilidad: el enunciado vale (o, si es ecuación, tiene como solución única) lo
+   * declarado y la solución de referencia es una respuesta correcta con `rules` y la sintaxis del mundo.
+   */
+  verifySolvable(
+    challenge: ChallengeDefinition,
+    rules: readonly RuleDefinition[],
+    syntax: MathSyntax = DEFAULT_MATH_SYNTAX,
+  ): SolvabilityReport {
     try {
-      const prompt = evaluator.evaluate(parser.parseExpression(challenge.expression));
+      const prompt = this.statementValue(challenge, syntax);
       const expected = Fraction.parse(challenge.expectedResult);
       if (!prompt.equals(expected)) {
-        return unsolvable(`El enunciado "${challenge.expression}" vale ${prompt}, no ${expected}.`);
+        return unsolvable(
+          isEquation(challenge)
+            ? `La ecuación "${challenge.expression}" tiene solución x = ${prompt}, no ${expected}.`
+            : `El enunciado "${challenge.expression}" vale ${prompt}, no ${expected}.`,
+        );
       }
     } catch (error) {
       return unsolvable(
@@ -104,6 +151,7 @@ export class ChallengeEngine {
       challenge,
       activeRules: rules,
       submission: challenge.referenceSolution,
+      syntax,
     });
     return evaluation.isCorrect
       ? { solvable: true, reason: null }

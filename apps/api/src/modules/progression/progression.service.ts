@@ -9,7 +9,11 @@ export interface StoredProgress {
   /** `null` si el jugador aún no ha jugado el mundo (no se crea fila en lecturas). */
   progressId: string | null;
   state: WorldProgressState;
+  /** Reglas DOMINADAS (superadas alguna vez, colección permanente). No son las activas. */
   unlockedRules: { key: string; unlockedAt: Date }[];
+  firstCompletedAt: Date | null;
+  /** Secuencia ACTIVE del jugador en el mundo, si la hay. */
+  activeSequence: { id: string; ruleKeys: readonly string[] } | null;
 }
 
 /** Resumen del progreso de un (jugador, mundo) para lecturas masivas (panel docente). */
@@ -21,7 +25,9 @@ export interface ProgressSummary {
   bestStreak: number;
   totalPoints: number;
   status: WorldProgressState['status'];
+  /** Reglas dominadas (superadas alguna vez). */
   unlockedRulesCount: number;
+  completionsCount: number;
 }
 
 /**
@@ -55,20 +61,30 @@ export class ProgressionService {
         progressId: null,
         state: this.manager.createInitialState(world.definition.slug),
         unlockedRules: [],
+        firstCompletedAt: null,
+        activeSequence: null,
       };
 
-    const unlockedRules = row.unlockedRules.map((u) => ({ key: u.rule.key, unlockedAt: u.unlockedAt }));
+    const sequence = await db.gameSequence.findFirst({
+      where: { userId, worldId: world.id, status: 'ACTIVE' },
+      select: { id: true, ruleKeys: true },
+    });
+    // Reglas activas = las de la secuencia en curso ya superadas (posiciones 2 … actual − 1).
+    const activeRuleIds = sequence ? sequence.ruleKeys.slice(0, Math.max(0, row.currentPosition - 2)) : [];
     return {
       progressId: row.id,
-      unlockedRules,
+      unlockedRules: row.unlockedRules.map((u) => ({ key: u.rule.key, unlockedAt: u.unlockedAt })),
+      firstCompletedAt: row.firstCompletedAt,
+      activeSequence: sequence,
       state: {
         worldSlug: world.definition.slug,
         currentPosition: row.currentPosition,
         streak: row.currentStreak,
         bestStreak: row.bestStreak,
         totalPoints: row.totalPoints,
-        unlockedRuleIds: unlockedRules.map((u) => u.key),
+        unlockedRuleIds: activeRuleIds,
         status: row.status,
+        completionsCount: row.completionsCount,
       },
     };
   }
@@ -93,6 +109,7 @@ export class ProgressionService {
       totalPoints: row.totalPoints,
       status: row.status,
       unlockedRulesCount: row._count.unlockedRules,
+      completionsCount: row.completionsCount,
     }));
   }
 
@@ -119,14 +136,39 @@ export class ProgressionService {
     return { ...stored, progressId: id };
   }
 
-  /** Persiste el nuevo estado y la regla recién desbloqueada, si la hay. */
+  /**
+   * Compleciones de varios mundos de un jugador (para decidir qué mundos están desbloqueados). Sin fila = 0.
+   */
+  async completionsByWorld(
+    userId: string,
+    worldIds: readonly string[],
+    db: DbClient | PrismaService = this.prisma,
+  ): Promise<Map<string, number>> {
+    if (worldIds.length === 0) return new Map();
+    const rows = await db.studentWorldProgress.findMany({
+      where: { userId, worldId: { in: [...worldIds] } },
+      select: { worldId: true, completionsCount: true },
+    });
+    return new Map(rows.map((row) => [row.worldId, row.completionsCount]));
+  }
+
+  /**
+   * Persiste el nuevo estado y, si el acierto superó la regla que introducía el reto, la añade a las reglas
+   * DOMINADAS (idempotente). La primera compleción del mundo fija `firstCompletedAt` (instante del servidor).
+   */
   async save(
     tx: DbClient,
     progressId: string,
     world: LoadedWorld,
     state: WorldProgressState,
     newlyUnlockedRuleKey: string | null,
+    /** Instante del servidor (`Clock`); obligatorio si este estado puede ser la primera compleción. */
+    now: Date | null = null,
   ): Promise<void> {
+    const current = await tx.studentWorldProgress.findUniqueOrThrow({
+      where: { id: progressId },
+      select: { firstCompletedAt: true },
+    });
     await tx.studentWorldProgress.update({
       where: { id: progressId },
       data: {
@@ -135,6 +177,10 @@ export class ProgressionService {
         bestStreak: state.bestStreak,
         totalPoints: state.totalPoints,
         status: state.status,
+        completionsCount: state.completionsCount,
+        ...(state.completionsCount > 0 && current.firstCompletedAt === null
+          ? { firstCompletedAt: requireInstant(now) }
+          : {}),
       },
     });
     if (newlyUnlockedRuleKey !== null) {
@@ -148,4 +194,10 @@ export class ProgressionService {
       });
     }
   }
+}
+
+function requireInstant(now: Date | null): Date {
+  if (now === null)
+    throw new Error('Se necesita el instante del servidor para registrar la primera compleción.');
+  return now;
 }

@@ -1,7 +1,9 @@
-import { arithmeticWorld } from '../worlds';
 import { ProgressionError, ProgressionManager } from './progression-manager';
+import { CLASSIC_RULES, CLASSIC_SEQUENCE } from './testing/classic-sequence.fixture';
 
 const manager = new ProgressionManager();
+const sequence = CLASSIC_SEQUENCE;
+const [NO_2, SEVEN_ONE] = CLASSIC_RULES.map((rule) => rule.id);
 const award = (streakAfter: number, points: number) => ({
   basePoints: 100,
   multiplierMilli: 1000,
@@ -9,99 +11,123 @@ const award = (streakAfter: number, points: number) => ({
   streakAfter,
 });
 
-describe('ProgressionManager', () => {
+describe('ProgressionManager (secuencias con reglas propias)', () => {
   const initial = manager.createInitialState('arithmetic');
 
-  it('estado inicial: reto 1, racha 0, sin reglas ni puntos', () => {
-    expect(initial).toMatchObject({
+  it('estado inicial: reto 1, racha 0, sin reglas, puntos ni compleciones', () => {
+    expect(initial).toEqual({
+      worldSlug: 'arithmetic',
       currentPosition: 1,
       streak: 0,
+      bestStreak: 0,
       totalPoints: 0,
+      unlockedRuleIds: [],
+      status: 'IN_PROGRESS',
+      completionsCount: 0,
+    });
+  });
+
+  it('presentar un reto incluye su regla como activa pero NO la acumula', () => {
+    const first = manager.presentChallenge(initial, sequence);
+    expect(first.challenge.id).toBe('c1');
+    expect(first.activeRules).toEqual([]); // el reto 1 no introduce reglas
+
+    const atTwo = { ...initial, currentPosition: 2 };
+    const second = manager.presentChallenge(atTwo, sequence);
+    expect(second.activeRules.map((r) => r.id)).toEqual([NO_2]);
+    expect(atTwo.unlockedRuleIds).toEqual([]);
+  });
+
+  it('las reglas activas son las superadas en la secuencia + la nueva, en orden', () => {
+    const state = { ...initial, currentPosition: 3, unlockedRuleIds: [NO_2] };
+    expect(manager.presentChallenge(state, sequence).activeRules.map((r) => r.id)).toEqual([NO_2, SEVEN_ONE]);
+    expect(() => manager.getActiveRules({ ...initial, unlockedRuleIds: ['nope'] }, sequence)).toThrow(
+      ProgressionError,
+    );
+  });
+
+  it('un reto que introduce una regla desconocida es un defecto (no se presenta)', () => {
+    const broken = {
+      ...sequence,
+      challenges: [sequence.challenges[0], { ...sequence.challenges[1], introducesRuleId: 'nope' }],
+    };
+    expect(() => manager.presentChallenge({ ...initial, currentPosition: 2 }, broken)).toThrow(
+      ProgressionError,
+    );
+  });
+
+  it('acierto: acumula la regla del reto, avanza, suma puntos y racha', () => {
+    const atTwo = { ...initial, currentPosition: 2, streak: 1, bestStreak: 1, totalPoints: 100 };
+    const next = manager.recordCorrect(atTwo, award(2, 150), sequence);
+    expect(next).toMatchObject({
+      currentPosition: 3,
+      streak: 2,
+      bestStreak: 2,
+      totalPoints: 250,
+      unlockedRuleIds: [NO_2],
+      status: 'IN_PROGRESS',
+      completionsCount: 0,
+    });
+    expect(atTwo.unlockedRuleIds).toEqual([]); // inmutable
+  });
+
+  it('acertar el último reto completa el mundo y cuenta una compleción', () => {
+    const last = { ...initial, currentPosition: 4, unlockedRuleIds: [NO_2, SEVEN_ONE], completionsCount: 1 };
+    const done = manager.recordCorrect(last, award(4, 250), sequence);
+    expect(done).toMatchObject({ status: 'COMPLETED', currentPosition: 5, completionsCount: 2 });
+    expect(() => manager.presentChallenge(done, sequence)).toThrow(ProgressionError);
+  });
+
+  it('fallo: vuelve al reto 1, racha a 0 y DESCARTA las reglas de la secuencia; conserva puntos', () => {
+    const progressed = {
+      ...initial,
+      currentPosition: 3,
+      streak: 2,
+      bestStreak: 5,
+      totalPoints: 250,
+      unlockedRuleIds: [NO_2],
+      completionsCount: 1,
+    };
+    expect(manager.recordFailure(progressed)).toEqual({
+      ...progressed,
+      currentPosition: 1,
+      streak: 0,
       unlockedRuleIds: [],
       status: 'IN_PROGRESS',
     });
   });
 
-  it('presentar un reto incluye su regla como activa pero NO la desbloquea', () => {
-    const first = manager.presentChallenge(initial, arithmeticWorld);
-    expect(first.challenge.id).toBe('arithmetic-001');
-    expect(first.activeRules).toEqual([]); // el reto 1 no introduce reglas
-
-    const atTwo = { ...initial, currentPosition: 2 };
-    const second = manager.presentChallenge(atTwo, arithmeticWorld);
-    expect(second.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
-    expect(atTwo.unlockedRuleIds).toEqual([]);
-  });
-
-  it('no duplica la regla del reto si ya estaba desbloqueada (reintento tras reinicio)', () => {
-    const state = { ...initial, currentPosition: 2, unlockedRuleIds: ['arithmetic.forbidden-digit-2'] };
-    expect(manager.presentChallenge(state, arithmeticWorld).activeRules).toHaveLength(1);
-  });
-
-  it('las reglas activas se devuelven como definiciones, en orden de desbloqueo', () => {
-    const state = {
+  it('nueva partida tras completar: reto 1 sin reglas, conserva racha, puntos y compleciones', () => {
+    const done = {
       ...initial,
-      unlockedRuleIds: ['arithmetic.required-7-times-1', 'arithmetic.forbidden-digit-2'],
+      status: 'COMPLETED' as const,
+      currentPosition: 5,
+      streak: 4,
+      unlockedRuleIds: [NO_2],
     };
-    expect(manager.getActiveRules(state, arithmeticWorld).map((r) => r.id)).toEqual(state.unlockedRuleIds);
-    expect(() => manager.getActiveRules({ ...initial, unlockedRuleIds: ['nope'] }, arithmeticWorld)).toThrow(
-      ProgressionError,
-    );
-  });
-
-  it('un acierto avanza, suma puntos y actualiza racha y mejor racha', () => {
-    const next = manager.recordCorrect(initial, award(1, 100), arithmeticWorld);
-    expect(next).toMatchObject({
-      currentPosition: 2,
-      streak: 1,
-      bestStreak: 1,
-      totalPoints: 100,
+    expect(manager.startNewRun(done)).toMatchObject({
       status: 'IN_PROGRESS',
+      currentPosition: 1,
+      streak: 4,
+      unlockedRuleIds: [],
     });
   });
 
-  it('completar el último reto marca el mundo como completado', () => {
-    const last = { ...initial, currentPosition: arithmeticWorld.challenges.length };
-    const done = manager.recordCorrect(last, award(4, 100), arithmeticWorld);
-    expect(done.status).toBe('COMPLETED');
-    expect(() => manager.presentChallenge(done, arithmeticWorld)).toThrow(ProgressionError);
-  });
-
-  describe('reiniciar la SECUENCIA (fallo) ≠ reiniciar el MUNDO', () => {
+  it('resetWorldProgress: borra posición y reglas, nunca puntos, mejor racha ni compleciones', () => {
     const progressed = {
       ...initial,
       currentPosition: 3,
       streak: 2,
-      bestStreak: 2,
-      totalPoints: 250,
-      unlockedRuleIds: ['arithmetic.forbidden-digit-2', 'arithmetic.required-7-times-1'],
+      bestStreak: 7,
+      totalPoints: 900,
+      unlockedRuleIds: [NO_2],
+      completionsCount: 2,
     };
-
-    it('recordFailure: vuelve al reto 1 y racha 0, conserva reglas, puntos y mejor racha', () => {
-      expect(manager.recordFailure(progressed)).toEqual({
-        ...progressed,
-        currentPosition: 1,
-        streak: 0,
-      });
-    });
-
-    it('resetWorldProgress: además borra las reglas acumuladas, pero nunca los puntos', () => {
-      expect(manager.resetWorldProgress(progressed)).toEqual({
-        worldSlug: 'arithmetic',
-        currentPosition: 1,
-        streak: 0,
-        bestStreak: 2,
-        totalPoints: 250,
-        unlockedRuleIds: [],
-        status: 'IN_PROGRESS',
-      });
-    });
-
-    it('no muta el estado original', () => {
-      const snapshot = JSON.stringify(progressed);
-      manager.recordFailure(progressed);
-      manager.resetWorldProgress(progressed);
-      expect(JSON.stringify(progressed)).toBe(snapshot);
+    expect(manager.resetWorldProgress(progressed)).toEqual({
+      ...initial,
+      bestStreak: 7,
+      totalPoints: 900,
+      completionsCount: 2,
     });
   });
 });

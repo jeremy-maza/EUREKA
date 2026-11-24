@@ -10,7 +10,7 @@ import { ScoreAward } from '../scoring';
 /** Un reto en curso. Todos los instantes los fija el servidor. */
 export interface ActiveChallenge {
   challenge: ChallengeDefinition;
-  /** Reglas que aplican a este intento (acumuladas + la del reto). */
+  /** Reglas que aplican a este intento (las ya superadas en la secuencia + la del reto). */
   activeRules: readonly RuleDefinition[];
   startedAt: Date;
   deadlineAt: Date;
@@ -30,7 +30,7 @@ export interface AttemptResult {
   evaluation: SubmissionEvaluation | null;
   award: ScoreAward;
   elapsedMs: number;
-  /** Regla desbloqueada (guardada) por este acierto, si el reto introducía una nueva. */
+  /** Regla superada por este acierto (pasa a dominada), si el reto introducía una. */
   unlockedRuleId: string | null;
   /** Nuevo estado de progreso (el original no se modifica). */
   state: WorldProgressState;

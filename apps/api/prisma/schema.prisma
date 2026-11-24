@@ -57,6 +57,20 @@ enum AttemptFailureReason {
   TIMEOUT
 }
 
+/// Ciclo de vida de una secuencia (subconjunto aleatorio de reglas + retos generados).
+enum SequenceStatus {
+  ACTIVE
+  COMPLETED
+  FAILED
+}
+
+/// Nivel de dificultad elegido por la política adaptativa al empezar la secuencia.
+enum DifficultyLevel {
+  EASIER
+  BASELINE
+  HARDER
+}
+
 enum ScoreReason {
   CORRECT_ANSWER
   MANUAL_ADJUSTMENT
@@ -95,6 +109,7 @@ model User {
   teacherAssignments TeacherGroupAssignment[] @relation("AssignmentTeacher")
   worldProgress      StudentWorldProgress[]
   gameSessions       GameSession[]
+  gameSequences      GameSequence[]
   attempts           ChallengeAttempt[]
   worldStatistics    WorldStatistics[]
   scoreTransactions  ScoreTransaction[]
@@ -263,6 +278,7 @@ model World {
   scores     ScoreTransaction[]
   attempts   ChallengeAttempt[]
   statistics WorldStatistics[]
+  sequences  GameSequence[]
 
   @@map("worlds")
 }
@@ -287,6 +303,8 @@ model Rule {
   @@map("rules")
 }
 
+/// HISTÓRICO: retos del catálogo fijo original del Mundo 1. Los retos nuevos se generan por secuencia
+/// (`SequenceChallenge`); estas filas se conservan porque los intentos antiguos las referencian.
 model Challenge {
   id                String   @id @default(uuid(7)) @db.Uuid
   worldId           String   @db.Uuid
@@ -318,18 +336,21 @@ model Challenge {
 
 /// Racha, puntos y posición independientes por (estudiante, mundo).
 model StudentWorldProgress {
-  id              String         @id @default(uuid(7)) @db.Uuid
-  userId          String         @db.Uuid
-  worldId         String         @db.Uuid
+  id               String         @id @default(uuid(7)) @db.Uuid
+  userId           String         @db.Uuid
+  worldId          String         @db.Uuid
   /// Posición (1-based) del reto actual en la secuencia.
-  currentPosition Int            @default(1)
-  currentStreak   Int            @default(0)
-  bestStreak      Int            @default(0)
+  currentPosition  Int            @default(1)
+  currentStreak    Int            @default(0)
+  bestStreak       Int            @default(0)
   /// Caché del total; la fuente auditable es la suma de ScoreTransaction.points.
-  totalPoints     Int            @default(0)
-  status          ProgressStatus @default(IN_PROGRESS)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  totalPoints      Int            @default(0)
+  status           ProgressStatus @default(IN_PROGRESS)
+  /// Veces que el jugador completó una secuencia entera del mundo (desbloquea el siguiente si > 0).
+  completionsCount Int            @default(0)
+  firstCompletedAt DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   world         World          @relation(fields: [worldId], references: [id], onDelete: Cascade)
@@ -339,7 +360,8 @@ model StudentWorldProgress {
   @@map("student_world_progress")
 }
 
-/// Reglas acumuladas por jugador y mundo. Persisten tras fallos y reinicios de secuencia.
+/// Reglas DOMINADAS por jugador y mundo: superadas al menos una vez (colección permanente).
+/// No son las reglas activas: esas pertenecen a la secuencia en curso y se descartan al fallar.
 model UnlockedRule {
   id         String   @id @default(uuid(7)) @db.Uuid
   progressId String   @db.Uuid
@@ -354,6 +376,54 @@ model UnlockedRule {
 }
 
 // ───────────── Sesiones, intentos y puntuación ─────────────
+
+/// Secuencia de retos: subconjunto aleatorio de reglas del mundo en orden aleatorio y un reto generado por
+/// posición. Se planifica al empezar (semilla del servidor) y se guarda entera. Una sola ACTIVE por (usuario, mundo)
+/// (índice único parcial en la migración `…_world_sequences`).
+model GameSequence {
+  id               String          @id @default(uuid(7)) @db.Uuid
+  userId           String          @db.Uuid
+  worldId          String          @db.Uuid
+  seed             Int
+  difficulty       DifficultyLevel
+  /// Claves de las reglas en orden de introducción (la posición p ≥ 2 introduce `ruleKeys[p - 2]`).
+  ruleKeys         String[]
+  generatorVersion String
+  status           SequenceStatus  @default(ACTIVE)
+  startedAt        DateTime        @default(now())
+  endedAt          DateTime?
+
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world      World               @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  challenges SequenceChallenge[]
+
+  @@index([userId, worldId, startedAt])
+  @@map("game_sequences")
+}
+
+/// Reto generado de una secuencia. `referenceSolution` y `expectedResult` NUNCA se exponen a estudiantes.
+model SequenceChallenge {
+  id                String  @id @default(uuid(7)) @db.Uuid
+  sequenceId        String  @db.Uuid
+  /// Posición (1-based) dentro de la secuencia.
+  position          Int
+  /// EXPRESSION | EQUATION
+  statementKind     String  @default("EXPRESSION")
+  expression        String
+  expectedResult    String
+  referenceSolution String
+  /// Clave de la regla que introduce (null en la posición 1).
+  introducesRuleKey String?
+  fingerprint       String
+  templateId        String
+  seed              Int
+
+  sequence GameSequence       @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  attempts ChallengeAttempt[]
+
+  @@unique([sequenceId, position])
+  @@map("sequence_challenges")
+}
 
 model GameSession {
   id        String    @id @default(uuid(7)) @db.Uuid
@@ -373,45 +443,53 @@ model GameSession {
 /// Historial de intentos (incluye fallos y timeouts). Un único intento por reto presentado.
 /// Los tiempos (`startedAt`, `deadlineAt`, `submittedAt`) los fija SIEMPRE el servidor.
 model ChallengeAttempt {
-  id               String                @id @default(uuid(7)) @db.Uuid
-  sessionId        String                @db.Uuid
+  id                  String                @id @default(uuid(7)) @db.Uuid
+  sessionId           String                @db.Uuid
   /// Denormalizado desde la sesión para consultas por estudiante/reto.
-  userId           String                @db.Uuid
+  userId              String                @db.Uuid
   /// Denormalizado desde el reto: permite garantizar un único intento PENDING por (usuario, mundo).
-  worldId          String                @db.Uuid
-  challengeId      String                @db.Uuid
-  outcome          AttemptOutcome        @default(PENDING)
-  failureReason    AttemptFailureReason?
-  submission       String?
+  worldId             String                @db.Uuid
+  /// HISTÓRICO: reto del catálogo fijo (intentos anteriores a las secuencias generadas).
+  challengeId         String?               @db.Uuid
+  /// Reto generado de la secuencia (intentos nuevos). CHECK: al menos uno de los dos está informado.
+  sequenceChallengeId String?               @db.Uuid
+  /// Instantánea del reto presentado: posición en la secuencia y enunciado.
+  position            Int
+  expression          String
+  outcome             AttemptOutcome        @default(PENDING)
+  failureReason       AttemptFailureReason?
+  submission          String?
   /// Valor evaluado de la expresión enviada (fracción canónica), si pudo evaluarse.
-  evaluatedValue   String?
+  evaluatedValue      String?
   /// Claves de las reglas activas en el momento del intento (auditoría y estadísticas).
-  activeRuleKeys   String[]
-  activeRulesCount Int
-  timeLimitSeconds Int
-  startedAt        DateTime              @default(now())
-  deadlineAt       DateTime
+  activeRuleKeys      String[]
+  activeRulesCount    Int
+  timeLimitSeconds    Int
+  startedAt           DateTime              @default(now())
+  deadlineAt          DateTime
   /// Solo si hubo envío a tiempo; un timeout cerrado por el servidor no tiene `submittedAt`.
-  submittedAt      DateTime?
+  submittedAt         DateTime?
   /// Milisegundos entre `startedAt` y el envío (reloj del servidor).
-  elapsedMs        Int?
-  streakBefore     Int
+  elapsedMs           Int?
+  streakBefore        Int
   /// Mensaje de resultado mostrado al jugador (permite devolver idéntica respuesta ante un reenvío).
-  resultMessage    String?
+  resultMessage       String?
   /// Clave de la regla que este acierto desbloqueó (null si ninguna o ya estaba desbloqueada).
-  unlockedRuleKey  String?
-  pointsAwarded    Int                   @default(0)
+  unlockedRuleKey     String?
+  pointsAwarded       Int                   @default(0)
   /// Violaciones de reglas detectadas (JSON estructurado).
-  violations       Json?
+  violations          Json?
 
-  session          GameSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  world            World             @relation(fields: [worldId], references: [id], onDelete: Restrict)
-  challenge        Challenge         @relation(fields: [challengeId], references: [id], onDelete: Restrict)
-  scoreTransaction ScoreTransaction?
+  session           GameSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world             World              @relation(fields: [worldId], references: [id], onDelete: Restrict)
+  challenge         Challenge?         @relation(fields: [challengeId], references: [id], onDelete: Restrict)
+  sequenceChallenge SequenceChallenge? @relation(fields: [sequenceChallengeId], references: [id], onDelete: NoAction)
+  scoreTransaction  ScoreTransaction?
 
   @@index([sessionId])
   @@index([userId, challengeId])
+  @@index([sequenceChallengeId])
   @@index([userId, worldId, startedAt])
   @@map("challenge_attempts")
 }

@@ -1,4 +1,4 @@
-import { DEFAULT_MAX_EXPRESSION_LENGTH } from '../math';
+import { DEFAULT_MATH_SYNTAX, DEFAULT_MAX_EXPRESSION_LENGTH, MathSyntax } from '../math';
 import { RuleDefinition } from '../rules';
 import {
   ChallengeDifficultyProfile,
@@ -7,6 +7,9 @@ import {
   DEFAULT_GENERATION_LIMITS,
   GenerationLimits,
   IntegerRange,
+  STATEMENT_FAMILIES,
+  StatementFamily,
+  WeightedFamily,
 } from './generation.types';
 
 export interface ResolvedGenerationRequest {
@@ -18,7 +21,20 @@ export interface ResolvedGenerationRequest {
   limits: GenerationLimits;
   avoid: ReadonlySet<string>;
   challengeId: string | null;
+  /** `null` = comportamiento original (solo la familia multiplicativa, mismo consumo del RNG). */
+  families: readonly WeightedFamily[] | null;
+  syntax: MathSyntax;
 }
+
+/** Sintaxis que necesita cada familia para escribir sus enunciados. */
+export function familyRequirementProblem(family: StatementFamily, syntax: MathSyntax): string | null {
+  if (family === 'DECIMAL' && !syntax.decimals)
+    return 'La familia DECIMAL requiere una sintaxis con decimales.';
+  if (family === 'POWER' && !syntax.powers) return 'La familia POWER requiere una sintaxis con potencias.';
+  return null;
+}
+
+export const MAX_FAMILY_WEIGHT = 100;
 
 export const MAX_OPERAND_VALUE = 9999;
 export const MAX_OPERAND_COUNT = 8;
@@ -66,6 +82,40 @@ export function resolveGenerationRequest(
   }
   if (typeof profile.allowFractions !== 'boolean')
     problems.push('"profile.allowFractions" debe ser booleano.');
+  if (typeof profile.allowNegative !== 'boolean') problems.push('"profile.allowNegative" debe ser booleano.');
+  if (profile.maxResult !== undefined)
+    validateInt('profile.maxResult', profile.maxResult, 1, 1_000_000_000, problems);
+
+  const syntax: MathSyntax = request.syntax ?? DEFAULT_MATH_SYNTAX;
+  if (
+    typeof syntax !== 'object' ||
+    typeof syntax.decimals !== 'boolean' ||
+    typeof syntax.powers !== 'boolean'
+  ) {
+    problems.push('"syntax" debe tener "decimals" y "powers" booleanos.');
+  }
+
+  let families: readonly WeightedFamily[] | null = null;
+  if (request.families !== undefined) {
+    if (!Array.isArray(request.families) || request.families.length === 0) {
+      problems.push('"families" debe ser una lista no vacía.');
+    } else {
+      families = request.families;
+      const seen = new Set<string>();
+      for (const entry of request.families) {
+        if (!STATEMENT_FAMILIES.includes(entry?.family)) {
+          problems.push(`Familia de enunciados desconocida: "${String(entry?.family)}".`);
+          continue;
+        }
+        if (seen.has(entry.family)) problems.push(`Familia repetida: "${entry.family}".`);
+        seen.add(entry.family);
+        validateInt(`families.${entry.family}.weight`, entry.weight, 1, MAX_FAMILY_WEIGHT, problems);
+        const requirement =
+          typeof syntax === 'object' ? familyRequirementProblem(entry.family, syntax) : null;
+        if (requirement !== null) problems.push(requirement);
+      }
+    }
+  }
 
   const limits: GenerationLimits = { ...DEFAULT_GENERATION_LIMITS, ...request.limits };
   validateInt('limits.maxCandidates', limits.maxCandidates, 1, MAX_CANDIDATES_CAP, problems);
@@ -108,6 +158,8 @@ export function resolveGenerationRequest(
       limits,
       avoid,
       challengeId: request.challengeId ?? null,
+      families,
+      syntax,
     },
   };
 }

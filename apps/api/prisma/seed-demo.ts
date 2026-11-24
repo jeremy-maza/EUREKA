@@ -4,7 +4,7 @@
  *   npm run db:seed:demo     # (re)crea las cuentas y escenarios demo: borra antes SOLO los datos demo anteriores
  *   npm run db:demo:reset    # elimina las cuentas demo y todo lo que cuelga de ellas
  *
- * Requisito previo: `npm run db:seed` (catálogo del Mundo 1). Se niega a ejecutarse con NODE_ENV=production.
+ * Requisito previo: `npm run db:seed` (catálogo de los cinco mundos). Se niega a ejecutarse con NODE_ENV=production.
  */
 import { PrismaPg } from '@prisma/adapter-pg';
 import { config as loadEnv } from 'dotenv';

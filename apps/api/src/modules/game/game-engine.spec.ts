@@ -1,7 +1,7 @@
 import { createChallengeEngine } from '../challenges';
 import { ProgressionManager, WorldProgressState } from '../progression';
 import { ScoringEngine, StreakManager } from '../scoring';
-import { arithmeticWorld } from '../worlds';
+import { CLASSIC_SEQUENCE, CLASSIC_WORLD } from '../progression/testing/classic-sequence.fixture';
 import { GameEngine, GameStateError } from './game-engine';
 import { TimerManager } from './timer-manager';
 
@@ -15,14 +15,16 @@ const engine = new GameEngine({
 
 const T0 = new Date('2026-01-01T00:00:00.000Z');
 const at = (seconds: number) => new Date(T0.getTime() + seconds * 1000);
-const world = arithmeticWorld;
+const world = CLASSIC_WORLD;
+const sequence = CLASSIC_SEQUENCE;
 
 /** Presenta el reto actual y envía `submission` a los `seconds` s del inicio. */
 function play(state: WorldProgressState, submission: string, seconds = 5) {
-  const activeChallenge = engine.startChallenge(state, world, T0);
+  const activeChallenge = engine.startChallenge(state, world, sequence, T0);
   const result = engine.submitAnswer({
     state,
     world,
+    sequence,
     activeChallenge,
     submission,
     submittedAt: at(seconds),
@@ -76,7 +78,7 @@ describe('GameEngine — flujo del mundo Aritmética', () => {
     expect(result.award.points).toBe(0);
   });
 
-  describe('fallo: un solo intento, reinicio de secuencia, reglas y puntos persisten', () => {
+  describe('fallo: un solo intento, la secuencia termina y sus reglas se descartan; los puntos persisten', () => {
     // El jugador llega al reto 3 con racha 2 y 250 puntos, y falla ahí.
     let state = progression.createInitialState('arithmetic');
     state = play(state, '21').result.state;
@@ -94,28 +96,23 @@ describe('GameEngine — flujo del mundo Aritmética', () => {
       expect(failing.result.state.bestStreak).toBe(2);
     });
 
-    it('conserva las reglas ya desbloqueadas; la del reto fallido NO se acumula', () => {
-      // El reto 2 se completó (regla del dígito 2 guardada); el reto 3 se falló (su regla 7 * 1 no se guarda).
-      expect(failing.result.state.unlockedRuleIds).toEqual(['arithmetic.forbidden-digit-2']);
+    it('descarta las reglas de la secuencia (también la ya superada); la del reto fallido no se acumula', () => {
+      expect(failing.result.state.unlockedRuleIds).toEqual([]);
       expect(failing.result.unlockedRuleId).toBeNull();
     });
 
-    it('al reiniciar, el reto 1 se juega con las reglas ya acumuladas', () => {
-      const replay = engine.startChallenge(failing.result.state, world, T0);
-      expect(replay.challenge.id).toBe('arithmetic-001');
-      expect(replay.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
+    it('la secuencia siguiente empieza en el reto 1 sin reglas y con el tiempo base', () => {
+      const replay = engine.startChallenge(failing.result.state, world, sequence, T0);
+      expect(replay.challenge.position).toBe(1);
+      expect(replay.activeRules).toEqual([]);
       expect(replay.timeLimitSeconds).toBe(60);
       expect(replay.streakBefore).toBe(0);
     });
 
-    it('en el reintento, "21" (válido la primera vez) ahora se rechaza; la referencia sí pasa', () => {
-      expect(play(failing.result.state, '21').result).toMatchObject({
-        outcome: 'INCORRECT',
-        failureReason: 'RULE_VIOLATION',
-      });
-      const again = play(failing.result.state, '7 * 1 * 3');
+    it('sin las reglas descartadas, "21" vuelve a ser válido en el reto 1 (racha desde 1x)', () => {
+      const again = play(failing.result.state, '21');
       expect(again.result.outcome).toBe('CORRECT');
-      expect(again.result.award).toMatchObject({ points: 100, streakAfter: 1 }); // la racha vuelve a empezar en 1x
+      expect(again.result.award).toMatchObject({ points: 100, streakAfter: 1 });
     });
   });
 
@@ -150,7 +147,7 @@ describe('GameEngine — tiempo (autoridad del servidor)', () => {
     expect(result.state).toMatchObject({ currentPosition: 1, streak: 0 });
   });
 
-  it('un timeout conserva reglas y puntos', () => {
+  it('un timeout conserva los puntos pero descarta las reglas de la secuencia', () => {
     const progressed: WorldProgressState = {
       ...state,
       currentPosition: 2,
@@ -162,24 +159,25 @@ describe('GameEngine — tiempo (autoridad del servidor)', () => {
     expect(result.outcome).toBe('TIMEOUT');
     expect(result.state).toMatchObject({
       totalPoints: 100,
-      unlockedRuleIds: ['arithmetic.forbidden-digit-2'],
+      unlockedRuleIds: [],
       streak: 0,
       currentPosition: 1,
     });
   });
 
   it('expireChallenge cierra como timeout un reto sin respuesta una vez vencido el plazo', () => {
-    const active = engine.startChallenge(state, world, T0);
+    const active = engine.startChallenge(state, world, sequence, T0);
     expect(() => engine.expireChallenge(state, active, at(30))).toThrow(GameStateError);
     const result = engine.expireChallenge(state, active, at(90));
     expect(result).toMatchObject({ outcome: 'TIMEOUT', elapsedMs: 90_000 });
   });
 
   it('no permite responder un reto que ya no es el actual (p. ej. reenvío tras resolver)', () => {
-    const active = engine.startChallenge(state, world, T0);
+    const active = engine.startChallenge(state, world, sequence, T0);
     const solved = engine.submitAnswer({
       state,
       world,
+      sequence,
       activeChallenge: active,
       submission: '21',
       submittedAt: at(1),
@@ -188,6 +186,7 @@ describe('GameEngine — tiempo (autoridad del servidor)', () => {
       engine.submitAnswer({
         state: solved.state,
         world,
+        sequence,
         activeChallenge: active,
         submission: '21',
         submittedAt: at(2),
@@ -200,7 +199,7 @@ describe('GameEngine — la regla nueva se acumula solo al completar el reto', (
   const afterOne = play(progression.createInitialState('arithmetic'), '21').result.state;
 
   it('durante el reto 2 la regla del dígito 2 ya aplica y cuenta para el tiempo', () => {
-    const active = engine.startChallenge(afterOne, world, T0);
+    const active = engine.startChallenge(afterOne, world, sequence, T0);
     expect(active.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
     expect(afterOne.unlockedRuleIds).toEqual([]); // aún no está guardada
   });
@@ -218,7 +217,16 @@ describe('GameEngine — la regla nueva se acumula solo al completar el reto', (
 
   it('al reintentar el mismo reto, la regla vuelve a presentarse como nueva', () => {
     const failed = play(afterOne, '21 * 2').result.state;
-    const second = engine.startChallenge({ ...failed, currentPosition: 2 }, world, T0);
+    const second = engine.startChallenge({ ...failed, currentPosition: 2 }, world, sequence, T0);
     expect(second.activeRules.map((r) => r.id)).toEqual(['arithmetic.forbidden-digit-2']);
+  });
+});
+
+describe('GameEngine — tiempo extra por mundo', () => {
+  it('suma `extraTimeSeconds` del mundo al plazo de cada reto', () => {
+    const slow = { ...world, sequence: { ...world.sequence, extraTimeSeconds: 20 } };
+    const active = engine.startChallenge(progression.createInitialState('arithmetic'), slow, sequence, T0);
+    expect(active.timeLimitSeconds).toBe(80);
+    expect(active.deadlineAt.getTime() - T0.getTime()).toBe(80_000);
   });
 });

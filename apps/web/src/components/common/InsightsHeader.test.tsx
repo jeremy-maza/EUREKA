@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  arithmeticWorld,
+  allWorlds,
   attempt,
   mockApi,
   ok,
@@ -12,6 +12,7 @@ import {
   signIn,
   student,
   teacher,
+  worldsProgress,
 } from '@/test/utils';
 
 const navigation = () => screen.getByRole('navigation', { name: 'Navegación principal' });
@@ -34,7 +35,8 @@ describe('cabecera: "Jugar"', () => {
   it('desde Mi progreso lleva a la partida (/juego), no al inicio', async () => {
     const api = mockApi({
       'GET /users/me': () => ok(student),
-      'GET /worlds': () => ok([arithmeticWorld]),
+      'GET /worlds': () => ok(allWorlds),
+      'GET /progress': () => ok(worldsProgress()),
       'GET /worlds/arithmetic/progress': () => ok(progress()),
       'GET /worlds/arithmetic/score?limit=10': () => ok(scoreSummary()),
       'GET /worlds/arithmetic/attempts?limit=10': () => ok({ items: [], nextCursor: null }),
@@ -59,15 +61,19 @@ describe('cabecera: "Jugar"', () => {
     const play = within(navigation()).getByRole('link', { name: 'Jugar' });
     expect(play).toHaveAttribute('href', '/juego');
     await userEvent.click(play);
+    await userEvent.click(await screen.findByRole('button', { name: 'Empezar desafío' }));
 
     expect(await screen.findByRole('heading', { name: 'Operación 3 × 7' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/juego');
+    // `/juego` lleva al mundo más indicado.
+    expect(screen.getByTestId('location')).toHaveTextContent('/juego/arithmetic');
     expect(api.count('POST /worlds/arithmetic/sessions')).toBe(1);
   });
 
   it('desde Clasificaciones también apunta a la partida; el logotipo sigue llevando al inicio', async () => {
     mockApi({
       'GET /users/me': () => ok(student),
+      'GET /worlds': () => ok(allWorlds),
+      'GET /progress': () => ok(worldsProgress()),
       'GET /worlds/arithmetic/leaderboard?limit=50': () => ok(board),
     });
     renderApp('/clasificaciones');

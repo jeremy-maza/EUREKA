@@ -1,5 +1,12 @@
 import { forbiddenDigitRule } from './handlers/forbidden-digit.rule';
+import { forbiddenOperatorRule } from './handlers/forbidden-operator.rule';
+import { maxNumberRule } from './handlers/max-number.rule';
+import { minNumbersRule } from './handlers/min-numbers.rule';
+import { requiredDecimalRule } from './handlers/required-decimal.rule';
+import { requiredNegativeRule } from './handlers/required-negative.rule';
 import { requiredOperationRule } from './handlers/required-operation.rule';
+import { requiredOperatorRule } from './handlers/required-operator.rule';
+import { requiredParenthesesRule } from './handlers/required-parentheses.rule';
 import { RuleConfigurationError, UnknownRuleTypeError } from './rule.errors';
 import { RuleDefinition, RuleHandler, RuleValidationContext, RuleViolation } from './rule.types';
 
@@ -63,7 +70,17 @@ export class RuleEngine {
   }
 }
 
-/** Motor con los tipos de regla disponibles en el MVP. */
+/** Motor con todos los tipos de regla del juego. */
 export function createDefaultRuleEngine(): RuleEngine {
-  return new RuleEngine([forbiddenDigitRule, requiredOperationRule]);
+  return new RuleEngine([
+    forbiddenDigitRule,
+    requiredOperationRule,
+    requiredOperatorRule,
+    forbiddenOperatorRule,
+    minNumbersRule,
+    maxNumberRule,
+    requiredNegativeRule,
+    requiredDecimalRule,
+    requiredParenthesesRule,
+  ]);
 }

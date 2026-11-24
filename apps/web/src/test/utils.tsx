@@ -38,20 +38,81 @@ export const rule7x1: Rule = {
   description: 'Debes usar la multiplicación 7 * 1.',
 };
 
+export const rule5: Rule = { key: 'r5', type: 'FORBIDDEN_DIGIT', description: 'No puedes usar el dígito 5.' };
+
+const integers = { decimals: false, powers: false };
+
 export const arithmeticWorld: WorldSummary = {
   slug: 'arithmetic',
   name: 'Aritmética',
   description: 'Suma, resta, multiplicación y división bajo reglas.',
   position: 1,
   challengeCount: 4,
+  ruleCount: 6,
+  concepts: ['Cuatro operaciones', 'Jerarquía de operaciones'],
+  syntax: integers,
 };
+export const signsWorld: WorldSummary = {
+  slug: 'signs',
+  name: 'Números y signos',
+  description: 'Positivos, negativos y la regla de los signos.',
+  position: 2,
+  challengeCount: 4,
+  ruleCount: 6,
+  concepts: ['Negativos', 'Regla de los signos'],
+  syntax: integers,
+};
+export const fractionsWorld: WorldSummary = {
+  slug: 'fractions',
+  name: 'Fracciones y decimales',
+  description: 'Partes de la unidad y decimales exactos.',
+  position: 3,
+  challengeCount: 4,
+  ruleCount: 6,
+  concepts: ['Fracciones', 'Decimales exactos'],
+  syntax: { decimals: true, powers: false },
+};
+export const algebraWorld: WorldSummary = {
+  slug: 'algebra',
+  name: 'Álgebra',
+  description: 'Ecuaciones lineales y potencias.',
+  position: 4,
+  challengeCount: 4,
+  ruleCount: 6,
+  concepts: ['Ecuaciones lineales', 'Potencias'],
+  syntax: { decimals: false, powers: true },
+};
+export const chaosWorld: WorldSummary = {
+  slug: 'chaos',
+  name: 'Caos matemático',
+  description: 'Todo lo anterior, mezclado.',
+  position: 5,
+  challengeCount: 5,
+  ruleCount: 8,
+  concepts: ['Todo combinado'],
+  syntax: { decimals: true, powers: true },
+};
+/** Los cinco mundos, desordenados a propósito: la app los ordena por `position`. */
+export const allWorlds: WorldSummary[] = [
+  signsWorld,
+  arithmeticWorld,
+  chaosWorld,
+  fractionsWorld,
+  algebraWorld,
+];
 
 export function progress(over: Partial<WorldProgress> = {}): WorldProgress {
   return {
     worldSlug: 'arithmetic',
     status: 'IN_PROGRESS',
+    unlocked: true,
+    unlockRequirement: null,
+    completionsCount: 0,
+    firstCompletedAt: null,
+    ruleCount: 6,
     currentPosition: 1,
     challengeCount: 4,
+    activeSequence: null,
     streak: 0,
     bestStreak: 0,
     totalPoints: 0,
@@ -72,14 +133,35 @@ export function progress(over: Partial<WorldProgress> = {}): WorldProgress {
   };
 }
 
+/** Progreso de un mundo bloqueado hasta completar `required`. */
+export function lockedProgress(world: WorldSummary, required: WorldSummary): WorldProgress {
+  return progress({
+    worldSlug: world.slug,
+    unlocked: false,
+    unlockRequirement: { worldSlug: required.slug, worldName: required.name, position: required.position },
+    ruleCount: world.ruleCount,
+  });
+}
+
+/** Progreso de los cinco mundos: Mundo 1 con `first`; el resto bloqueados en cadena. */
+export function worldsProgress(first: Partial<WorldProgress> = {}): WorldProgress[] {
+  const ordered = [arithmeticWorld, signsWorld, fractionsWorld, algebraWorld, chaosWorld];
+  return [progress(first), ...ordered.slice(1).map((world, index) => lockedProgress(world, ordered[index]))];
+}
+
 export function attempt(over: Partial<ChallengeAttempt> = {}): ChallengeAttempt {
   return {
     attemptId: 'a1',
     sessionId: 's1',
     worldSlug: 'arithmetic',
+    sequenceId: 'q1',
+    difficulty: 'BASELINE',
     position: 1,
     challengeCount: 4,
+    statementKind: 'EXPRESSION',
     expression: '3 * 7',
+    instruction: 'Escribe una expresión con el mismo resultado que cumpla todas las reglas activas.',
+    syntax: integers,
     rules: [],
     newRule: null,
     timeLimitSeconds: 60,
@@ -104,7 +186,9 @@ export function answer(over: Partial<AnswerResult> = {}): AnswerResult {
     score: { basePoints: 100, multiplierMilli: 1000, multiplier: '1', points: 100 },
     unlockedRule: null,
     sequenceRestarted: false,
+    discardedRules: [],
     worldCompleted: false,
+    nextWorldUnlocked: null,
     progress: progress({ totalPoints: 100, streak: 1, nextMultiplierMilli: 1500, nextMultiplier: '1.5' }),
     replayed: false,
     ...over,

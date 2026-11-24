@@ -1,7 +1,7 @@
 import { arithmeticWorld } from '../../worlds/catalog/arithmetic.world';
 import { ChallengeEngine, createChallengeEngine } from '../challenge-engine';
 import { ChallengeDefinition } from '../challenge.types';
-import { ExpressionParser, Fraction, MathEvaluator } from '../math';
+import { DEFAULT_MATH_SYNTAX, ExpressionParser, Fraction, MathEvaluator } from '../math';
 import {
   RuleDefinition,
   RuleEngine,
@@ -417,7 +417,7 @@ describe('generateChallenge — presupuestos y terminación', () => {
     const result = generator.generate(request({ activeRules: arithmeticWorld.rules, position: 4 }));
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(spy).toHaveBeenCalledWith(result.challenge, arithmeticWorld.rules);
+      expect(spy).toHaveBeenCalledWith(result.challenge, arithmeticWorld.rules, DEFAULT_MATH_SYNTAX);
       expect(spy.mock.results.at(-1)?.value).toEqual({ solvable: true, reason: null });
     }
     spy.mockRestore();

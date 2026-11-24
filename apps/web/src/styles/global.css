@@ -55,3 +55,21 @@ a {
   color: var(--text);
   background: var(--yellow);
 }
+
+/* Texto solo para lectores de pantalla (nombres accesibles más completos que el texto visible). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(71, 185, 232, 0.55);
+  outline-offset: 2px;
+}

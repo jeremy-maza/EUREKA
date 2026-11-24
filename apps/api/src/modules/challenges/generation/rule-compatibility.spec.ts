@@ -5,7 +5,7 @@ import {
   forbiddenDigitRule,
   requiredOperationRule,
 } from '../rules';
-import { checkRuleCompatibility } from './rule-compatibility';
+import { checkRuleCompatibility, emptyRuleConstraints } from './rule-compatibility';
 
 const forbid = (digit: number): RuleDefinition => ({
   id: `no-${digit}`,
@@ -30,7 +30,7 @@ describe('checkRuleCompatibility — sin conflicto demostrado', () => {
   it('sin reglas', () => {
     expect(checkRuleCompatibility([])).toEqual({
       status: 'NO_CONFLICT_FOUND',
-      constraints: { rules: [], forbiddenDigits: [], requiredOperations: [] },
+      constraints: emptyRuleConstraints(),
     });
   });
 
@@ -199,7 +199,7 @@ describe('checkRuleCompatibility — reglas no soportadas o inválidas', () => {
 
   it('configuración inválida de REQUIRED_OPERATION y de id vacío', () => {
     expect(
-      checkRuleCompatibility([{ ...mustUse('*', 7, 1), config: { operator: '^', left: 1, right: 2 } }])
+      checkRuleCompatibility([{ ...mustUse('*', 7, 1), config: { operator: '%', left: 1, right: 2 } }])
         .status,
     ).toBe('INVALID_CONFIG');
     expect(

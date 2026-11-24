@@ -13,12 +13,26 @@ export type AccessToken = {
   expiresIn: number;
 };
 
+/** Símbolos que admite el parser del servidor en un mundo (además de enteros y `+ - * / ( ) =`). */
+export type MathSyntax = { decimals: boolean; powers: boolean };
+
+/** Nivel de dificultad que el servidor elige al empezar cada secuencia. */
+export type DifficultyLevel = 'EASIER' | 'BASELINE' | 'HARDER';
+
+/** Referencia breve a un mundo (desbloqueos y requisitos). */
+export type WorldRef = { slug: string; name: string; position: number };
+
 export type WorldSummary = {
   slug: string;
   name: string;
   description: string;
   position: number;
+  /** Retos de una secuencia BASELINE (la longitud real de cada secuencia varía). */
   challengeCount: number;
+  /** Tamaño del repertorio de reglas del mundo. */
+  ruleCount: number;
+  concepts: string[];
+  syntax: MathSyntax;
 };
 
 export type Rule = {
@@ -43,13 +57,24 @@ export type StartSessionResponse = {
   expiredAttempt: { attemptId: string; outcome: 'TIMEOUT' } | null;
 };
 
+export type StatementKind = 'EXPRESSION' | 'EQUATION';
+
 export type ChallengeAttempt = {
   attemptId: string;
   sessionId: string;
   worldSlug: string;
+  sequenceId: string;
+  difficulty: DifficultyLevel;
   position: number;
+  /** Longitud de ESTA secuencia. */
   challengeCount: number;
+  /** `EQUATION`: `expression` es una ecuación en x y la respuesta es una expresión que valga x. */
+  statementKind: StatementKind;
   expression: string;
+  /** Texto del servidor que se muestra encima de la respuesta. */
+  instruction: string;
+  syntax: MathSyntax;
+  /** Reglas activas de esta secuencia (las ya superadas en ella + la nueva). */
   rules: Rule[];
   newRule: Rule | null;
   timeLimitSeconds: number;
@@ -77,16 +102,34 @@ export type WorldStatistics = {
   ruleViolationCounts: Record<string, number>;
 };
 
+export type ActiveSequence = {
+  id: string;
+  difficulty: DifficultyLevel;
+  challengeCount: number;
+  /** Reglas activas ya superadas en esta secuencia. */
+  rules: Rule[];
+};
+
 export type WorldProgress = {
   worldSlug: string;
   status: 'IN_PROGRESS' | 'COMPLETED';
+  unlocked: boolean;
+  /** Mundo que hay que completar para desbloquear este; `null` si ya está desbloqueado. */
+  unlockRequirement: { worldSlug: string; worldName: string; position: number } | null;
+  completionsCount: number;
+  firstCompletedAt: string | null;
+  /** Tamaño del repertorio de reglas del mundo. */
+  ruleCount: number;
   currentPosition: number;
+  /** Retos de la secuencia activa (o de una BASELINE si no hay ninguna). */
   challengeCount: number;
+  activeSequence: ActiveSequence | null;
   streak: number;
   bestStreak: number;
   totalPoints: number;
   nextMultiplierMilli: number;
   nextMultiplier: string;
+  /** Reglas DOMINADAS: superadas alguna vez en este mundo. Es una colección permanente, no las reglas activas. */
   unlockedRules: UnlockedRule[];
   activeSessionId: string | null;
   pendingAttemptId: string | null;
@@ -105,7 +148,11 @@ export type AnswerResult = {
   score: { basePoints: number; multiplierMilli: number; multiplier: string; points: number };
   unlockedRule: Rule | null;
   sequenceRestarted: boolean;
+  /** Reglas de la secuencia que descarta un fallo (`[]` si acierto). */
+  discardedRules: Rule[];
   worldCompleted: boolean;
+  /** Mundo que este acierto desbloqueó por primera vez. */
+  nextWorldUnlocked: WorldRef | null;
   progress: WorldProgress;
   replayed: boolean;
 };

@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
-import { ExpressionNode, Fraction, isCommutative } from '../math';
+import {
+  ExpressionNode,
+  Fraction,
+  ParsedEquation,
+  isCommutative,
+  isDecimalLiteral,
+  numberValue,
+} from '../math';
 
 /** Se incrementa si cambia el algoritmo de normalización (invalida huellas anteriores a propósito). */
 export const FINGERPRINT_VERSION = 'fp1';
@@ -9,13 +16,17 @@ export const FINGERPRINT_VERSION = 'fp1';
  *   - los literales se comparan por valor (`07` ≡ `7`);
  *   - `+` y `*` son conmutativos y asociativos: se aplanan y se ordenan sus operandos
  *     (`3*7`, `7 * 3` y `(3*7)*2` ≡ `2*(7*3)`);
- *   - `-` y `/` conservan el orden y la estructura.
+ *   - `-`, `/` y `^` conservan el orden y la estructura;
+ *   - los decimales se comparan por valor (`2.5` ≡ `2,50`), pero nunca coinciden con un entero ni con una
+ *     división (`dec(5/2)` ≠ `/(5,2)`); la incógnita es `x`.
  * No hay reescritura algebraica (no se evalúan subárboles): `2*3` y `6` siguen siendo distintos.
  */
 export function canonicalizeExpression(node: ExpressionNode): string {
   switch (node.kind) {
     case 'number':
-      return node.value.toString();
+      return isDecimalLiteral(node) ? `dec(${numberValue(node).toString()})` : node.value.toString();
+    case 'variable':
+      return 'x';
     case 'negation':
       return `neg(${canonicalizeExpression(node.operand)})`;
     case 'binary': {
@@ -41,5 +52,16 @@ function flatten(node: ExpressionNode, operator: string): ExpressionNode[] {
  */
 export function fingerprintChallenge(expression: ExpressionNode, expectedResult: Fraction): string {
   const material = `${FINGERPRINT_VERSION}|${canonicalizeExpression(expression)}|=${expectedResult.toString()}`;
+  return `${FINGERPRINT_VERSION}-${createHash('sha256').update(material).digest('hex').slice(0, 32)}`;
+}
+
+/**
+ * Huella de un enunciado de tipo ecuación: hash de (lados normalizados, solución). Mismo formato que
+ * `fingerprintChallenge`; el prefijo `eq` evita cualquier colisión con una expresión.
+ */
+export function fingerprintEquation(equation: ParsedEquation, solution: Fraction): string {
+  const material =
+    `${FINGERPRINT_VERSION}|eq|${canonicalizeExpression(equation.left)}=` +
+    `${canonicalizeExpression(equation.right)}|=${solution.toString()}`;
   return `${FINGERPRINT_VERSION}-${createHash('sha256').update(material).digest('hex').slice(0, 32)}`;
 }

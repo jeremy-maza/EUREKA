@@ -9,8 +9,13 @@ export interface TemplateContext {
   biasDigits: readonly number[];
 }
 
+export type MultiplicativeTemplateId = Extract<
+  TemplateId,
+  'PRODUCT_CHAIN' | 'PRODUCT_QUOTIENT' | 'PRODUCT_SUM' | 'PARENTHESIZED_SUM_PRODUCT'
+>;
+
 export interface StatementCandidate {
-  templateId: TemplateId;
+  templateId: MultiplicativeTemplateId;
   /** Texto del enunciado. El resultado NO se calcula aquí: lo evalúa `MathEvaluator`. */
   expression: string;
 }
@@ -21,7 +26,7 @@ type Tpl =
 /** Intentos máximos de redibujar un operando buscando uno que contenga un dígito prohibido. */
 const BIAS_DRAWS = 6;
 
-const PRECEDENCE: Record<BinaryOperator, number> = { '+': 1, '-': 1, '*': 2, '/': 2 };
+const PRECEDENCE: Record<BinaryOperator, number> = { '+': 1, '-': 1, '*': 2, '/': 2, '^': 4 };
 
 /**
  * Familia multiplicativa inicial. Elige una plantilla según `profile.complexity` y el número de
@@ -46,14 +51,14 @@ export function generateMultiplicativeStatement(context: TemplateContext): State
 export function availableTemplates(
   complexity: ChallengeDifficultyProfile['complexity'],
   count: number,
-): TemplateId[] {
+): MultiplicativeTemplateId[] {
   if (count < 3 || complexity === 'PRODUCT') return ['PRODUCT_CHAIN'];
-  const templates: TemplateId[] = ['PRODUCT_CHAIN', 'PRODUCT_QUOTIENT', 'PRODUCT_SUM'];
+  const templates: MultiplicativeTemplateId[] = ['PRODUCT_CHAIN', 'PRODUCT_QUOTIENT', 'PRODUCT_SUM'];
   if (complexity === 'NESTED') templates.push('PARENTHESIZED_SUM_PRODUCT');
   return templates;
 }
 
-const BUILDERS: Record<TemplateId, (context: TemplateContext, count: number) => Tpl | null> = {
+const BUILDERS: Record<MultiplicativeTemplateId, (context: TemplateContext, count: number) => Tpl | null> = {
   PRODUCT_CHAIN: productChain,
   PRODUCT_QUOTIENT: productQuotient,
   PRODUCT_SUM: productSum,

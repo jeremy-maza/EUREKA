@@ -1,4 +1,4 @@
-export * from './catalog/arithmetic.world';
+export * from './catalog';
 export * from './world-validator';
 export * from './world.types';
 export * from './worlds.module';

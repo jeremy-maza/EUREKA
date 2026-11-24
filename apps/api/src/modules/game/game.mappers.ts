@@ -1,7 +1,6 @@
 import { ChallengeAttempt, GameSession, Prisma, ScoreTransaction } from '../../generated/prisma/client';
 import { RuleDefinition } from '../challenges';
 import { formatMultiplier } from '../scoring';
-import { WorldDefinition } from '../worlds';
 import {
   AttemptHistoryItemDto,
   RuleDto,
@@ -41,15 +40,12 @@ export function toScoreTransactionDto(row: ScoreTransaction): ScoreTransactionDt
   };
 }
 
-export function toHistoryItem(
-  attempt: ChallengeAttempt & { challenge: { key: string } },
-  world: WorldDefinition,
-): AttemptHistoryItemDto {
-  const challenge = world.challenges.find((c) => c.id === attempt.challenge.key);
+/** El intento guarda una instantánea del reto presentado (posición y enunciado), también los del catálogo antiguo. */
+export function toHistoryItem(attempt: ChallengeAttempt): AttemptHistoryItemDto {
   return {
     attemptId: attempt.id,
-    position: challenge?.position ?? 0,
-    expression: challenge?.expression ?? '',
+    position: attempt.position,
+    expression: attempt.expression,
     outcome: attempt.outcome,
     failureReason: attempt.failureReason,
     submission: attempt.submission,

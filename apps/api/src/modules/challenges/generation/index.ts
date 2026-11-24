@@ -5,4 +5,6 @@ export * from './generation.types';
 export * from './multiplicative-templates';
 export * from './rule-compatibility';
 export * from './seeded-random';
+export * from './statement-families';
 export * from './witness-builder';
+export * from './world-generation.types';

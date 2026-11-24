@@ -1,7 +1,6 @@
 import { ChallengeDefinition, RuleAccumulator, RuleDefinition } from '../challenges';
 import { ScoreAward } from '../scoring';
-import { WorldDefinition } from '../worlds';
-import { PresentedChallenge, WorldProgressState } from './progression.types';
+import { PlayableSequence, PresentedChallenge, WorldProgressState } from './progression.types';
 
 export class ProgressionError extends Error {
   constructor(message: string) {
@@ -13,11 +12,12 @@ export class ProgressionError extends Error {
 /**
  * Transiciones del progreso de un jugador en un mundo. Lógica pura, sin I/O.
  *
- * Dos operaciones distintas que NO deben confundirse:
- *  - `recordFailure` (reiniciar la SECUENCIA): vuelve al reto 1 y pone la racha a 0,
- *    pero conserva reglas desbloqueadas y puntos.
- *  - `resetWorldProgress` (reiniciar el MUNDO): además borra las reglas acumuladas.
- *    Es una acción administrativa; los puntos ganados jamás se borran.
+ * Una SECUENCIA es un subconjunto aleatorio de reglas del mundo en orden aleatorio (lo decide el planificador al
+ * empezarla). Dentro de la secuencia las reglas se acumulan; fuera de ella no existen:
+ *  - `recordFailure` (fallo o tiempo agotado): vuelve al reto 1, racha a 0 y DESCARTA las reglas de la secuencia
+ *    (la siguiente sorteará otras). Los puntos se conservan.
+ *  - `recordCorrect` en el último reto: completa el mundo (`completionsCount + 1`).
+ *  - `startNewRun`: tras completar, vuelve al reto 1 de una secuencia nueva conservando puntos y racha.
  */
 export class ProgressionManager {
   createInitialState(worldSlug: string): WorldProgressState {
@@ -29,49 +29,54 @@ export class ProgressionManager {
       totalPoints: 0,
       unlockedRuleIds: [],
       status: 'IN_PROGRESS',
+      completionsCount: 0,
     };
   }
 
-  /** Reglas activas del jugador, en orden de desbloqueo. */
-  getActiveRules(state: WorldProgressState, world: WorldDefinition): readonly RuleDefinition[] {
-    const byId = new Map(world.rules.map((rule) => [rule.id, rule]));
+  /** Reglas ya superadas en la secuencia, en orden de introducción. */
+  getActiveRules(state: WorldProgressState, sequence: PlayableSequence): readonly RuleDefinition[] {
+    const byId = new Map(sequence.rules.map((rule) => [rule.id, rule]));
     const accumulator = state.unlockedRuleIds.reduce((acc, ruleId) => {
       const rule = byId.get(ruleId);
       if (!rule)
         throw new ProgressionError(
-          `La regla desbloqueada "${ruleId}" no existe en el mundo "${world.slug}".`,
+          `La regla "${ruleId}" de la secuencia no existe en el mundo "${sequence.worldSlug}".`,
         );
       return acc.unlock(rule);
     }, RuleAccumulator.empty());
     return accumulator.rules;
   }
 
-  getCurrentChallenge(state: WorldProgressState, world: WorldDefinition): ChallengeDefinition {
+  getCurrentChallenge(state: WorldProgressState, sequence: PlayableSequence): ChallengeDefinition {
     if (state.status === 'COMPLETED') {
       throw new ProgressionError(
-        `El mundo "${world.slug}" ya está completado; reinicia la secuencia para volver a jugar.`,
+        `El mundo "${sequence.worldSlug}" ya está completado; empieza una secuencia nueva para volver a jugar.`,
       );
     }
-    const challenge = world.challenges[state.currentPosition - 1];
+    const challenge = sequence.challenges[state.currentPosition - 1];
     if (!challenge) {
       throw new ProgressionError(
-        `No existe el reto en la posición ${state.currentPosition} del mundo "${world.slug}".`,
+        `No existe el reto en la posición ${state.currentPosition} de la secuencia del mundo "${sequence.worldSlug}".`,
       );
     }
     return challenge;
   }
 
   /**
-   * Reglas activas en el reto actual: las desbloqueadas más la que introduce el reto.
-   * No modifica el estado: la regla nueva solo se desbloquea al completar el reto (`recordCorrect`),
-   * por lo que fallar o agotar el tiempo no la acumula.
+   * Reglas activas en el reto actual: las ya superadas en la secuencia más la que introduce el reto.
+   * No modifica el estado: la regla nueva solo se acumula al completar el reto (`recordCorrect`).
    */
-  presentChallenge(state: WorldProgressState, world: WorldDefinition): PresentedChallenge {
-    const challenge = this.getCurrentChallenge(state, world);
-    const unlocked = this.getActiveRules(state, world);
+  presentChallenge(state: WorldProgressState, sequence: PlayableSequence): PresentedChallenge {
+    const challenge = this.getCurrentChallenge(state, sequence);
+    const unlocked = this.getActiveRules(state, sequence);
     const introduced = challenge.introducesRuleId
-      ? world.rules.find((rule) => rule.id === challenge.introducesRuleId)
+      ? sequence.rules.find((rule) => rule.id === challenge.introducesRuleId)
       : undefined;
+    if (challenge.introducesRuleId && !introduced) {
+      throw new ProgressionError(
+        `El reto ${challenge.position} introduce la regla desconocida "${challenge.introducesRuleId}".`,
+      );
+    }
     const activeRules =
       introduced && !unlocked.some((rule) => rule.id === introduced.id)
         ? [...unlocked, introduced]
@@ -79,11 +84,16 @@ export class ProgressionManager {
     return { challenge, activeRules };
   }
 
-  /** Acierto: desbloquea la regla del reto, avanza, suma puntos y actualiza la racha. */
-  recordCorrect(state: WorldProgressState, award: ScoreAward, world: WorldDefinition): WorldProgressState {
-    const challenge = this.getCurrentChallenge(state, world);
+  /** Acierto: acumula la regla del reto, avanza, suma puntos y actualiza la racha. */
+  recordCorrect(
+    state: WorldProgressState,
+    award: ScoreAward,
+    sequence: PlayableSequence,
+  ): WorldProgressState {
+    const challenge = this.getCurrentChallenge(state, sequence);
     const ruleId = challenge.introducesRuleId;
     const nextPosition = state.currentPosition + 1;
+    const completed = nextPosition > sequence.challenges.length;
     return {
       ...state,
       unlockedRuleIds:
@@ -94,34 +104,31 @@ export class ProgressionManager {
       streak: award.streakAfter,
       bestStreak: Math.max(state.bestStreak, award.streakAfter),
       totalPoints: state.totalPoints + award.points,
-      status: nextPosition > world.challenges.length ? 'COMPLETED' : 'IN_PROGRESS',
+      status: completed ? 'COMPLETED' : 'IN_PROGRESS',
+      completionsCount: completed ? state.completionsCount + 1 : state.completionsCount,
     };
   }
 
-  /** Fallo o timeout: reinicia la SECUENCIA (reto 1, racha 0). Conserva reglas y puntos. */
+  /** Fallo o timeout: vuelve al reto 1, racha a 0 y descarta las reglas de la secuencia. Conserva los puntos. */
   recordFailure(state: WorldProgressState): WorldProgressState {
-    return this.restartSequence(state);
-  }
-
-  /** Vuelve al primer reto con racha 0 conservando reglas desbloqueadas y puntos. */
-  restartSequence(state: WorldProgressState): WorldProgressState {
-    return { ...state, currentPosition: 1, streak: 0, status: 'IN_PROGRESS' };
+    return { ...state, currentPosition: 1, streak: 0, unlockedRuleIds: [], status: 'IN_PROGRESS' };
   }
 
   /**
-   * Nueva partida tras completar el mundo: vuelve al reto 1 conservando reglas, puntos y racha
+   * Nueva partida tras completar el mundo: reto 1 de una secuencia nueva conservando puntos y racha
    * (completar no es fallar, así que la racha no se reinicia).
    */
   startNewRun(state: WorldProgressState): WorldProgressState {
-    return { ...state, currentPosition: 1, status: 'IN_PROGRESS' };
+    return { ...state, currentPosition: 1, unlockedRuleIds: [], status: 'IN_PROGRESS' };
   }
 
-  /** Reinicia el MUNDO: borra reglas acumuladas y posición. Conserva puntos y mejor racha. */
+  /** Reinicia el MUNDO (acción administrativa): posición y reglas a cero. Conserva puntos, mejor racha y compleciones. */
   resetWorldProgress(state: WorldProgressState): WorldProgressState {
     return {
       ...this.createInitialState(state.worldSlug),
       totalPoints: state.totalPoints,
       bestStreak: state.bestStreak,
+      completionsCount: state.completionsCount,
     };
   }
 }

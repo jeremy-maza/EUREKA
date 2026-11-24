@@ -17,34 +17,42 @@ TOKEN=$(curl -s -X POST $B/auth/login -H 'content-type: application/json' \
   -d '{"email":"ana@example.com","password":"correct-horse-battery"}' | jq -r .accessToken)
 A="Authorization: Bearer $TOKEN"
 
-# 2. Sesión en el mundo 1 (201 si se crea, 200 si se reanuda)
+# 2. Sesión en el mundo 1 (201 si se crea, 200 si se reanuda; 403 en un mundo aún bloqueado)
 SID=$(curl -s -X POST $B/worlds/arithmetic/sessions -H "$A" | jq -r .session.id)
 
-# 3. Iniciar el reto actual: el cronómetro del SERVIDOR empieza aquí
+# 3. Iniciar el reto actual: sin secuencia activa, el servidor sortea una (subconjunto y orden de reglas) y genera
+#    sus retos; el cronómetro del SERVIDOR empieza aquí
 curl -s -X POST $B/sessions/$SID/attempts -H "$A"
-# → { attemptId, position: 1, expression: "3 * 7", rules: [], newRule: null,
+# → { attemptId, sequenceId, difficulty: "BASELINE", position: 1, challengeCount: 4,
+#     statementKind: "EXPRESSION", expression: "3 * 8 * 3", instruction: "Escribe una expresión…",
+#     syntax: { decimals: false, powers: false }, rules: [], newRule: null,
 #     timeLimitSeconds: 60, deadlineAt, serverTime, remainingMs, ... }
 
 # 4. Responder: la ÚNICA entrada del cliente es la expresión
-curl -s -X POST $B/attempts/$AID/answer -H "$A" -H 'content-type: application/json' -d '{"expression":"21"}'
-# → { outcome: "CORRECT", score: { points: 100, multiplier: "1" }, progress: { streak: 1, ... }, ... }
+curl -s -X POST $B/attempts/$AID/answer -H "$A" -H 'content-type: application/json' -d '{"expression":"8 * 9"}'
+# → { outcome: "CORRECT", score: { points: 100, multiplier: "1" }, discardedRules: [], worldCompleted: false,
+#     nextWorldUnlocked: null, progress: { streak: 1, activeSequence: { … }, unlocked: true, ... }, ... }
 ```
 
 ## Semántica
 
-| Situación                                                                 | Resultado                                                                                                                           |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Respuesta correcta y válida con las reglas                                | `CORRECT`; puntos = base × multiplicador; se guarda la regla nueva; avanza al siguiente reto                                        |
-| Resultado erróneo, sintaxis inválida, división entre cero o regla violada | `INCORRECT` (con `failureReason` y `violations`); 0 puntos; racha a 0; **reinicia la secuencia**; las reglas guardadas se conservan |
-| Envío fuera de plazo (reloj del servidor)                                 | `TIMEOUT`; mismas consecuencias que un fallo; la respuesta no se evalúa                                                             |
-| Reto abandonado                                                           | Se cierra como `TIMEOUT` al volver a consultar el estado o iniciar un reto                                                          |
-| Reenviar la misma expresión                                               | 200 con el resultado original (`replayed: true`); no se puntúa dos veces                                                            |
-| Otra expresión en un reto ya resuelto                                     | 409 (un solo intento por reto)                                                                                                      |
-| Campos extra en el cuerpo (`points`, `streak`, `submittedAt`…)            | 400                                                                                                                                 |
-| Sesión/intento de otro jugador                                            | 404                                                                                                                                 |
+| Situación                                                                 | Resultado                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Respuesta correcta y válida con las reglas                                | `CORRECT`; puntos = base × multiplicador; la regla del reto queda activa en la secuencia (y pasa a dominadas); avanza al siguiente reto                                                                           |
+| Resultado erróneo, sintaxis inválida, división entre cero o regla violada | `INCORRECT` (con `failureReason` y `violations`); 0 puntos; racha a 0; **la secuencia termina y sus reglas se descartan** (`discardedRules`); el próximo reto sortea una secuencia nueva; los puntos se conservan |
+| Último reto de la secuencia acertado                                      | `worldCompleted: true`; la sesión se cierra; la primera vez, `nextWorldUnlocked` indica el mundo que se desbloquea                                                                                                |
+| Sesión en un mundo bloqueado                                              | 403 `Completa el Mundo N (Nombre) para desbloquear este mundo.`                                                                                                                                                   |
+| Envío fuera de plazo (reloj del servidor)                                 | `TIMEOUT`; mismas consecuencias que un fallo; la respuesta no se evalúa                                                                                                                                           |
+| Reto abandonado                                                           | Se cierra como `TIMEOUT` al volver a consultar el estado o iniciar un reto                                                                                                                                        |
+| Reenviar la misma expresión                                               | 200 con el resultado original (`replayed: true`); no se puntúa dos veces                                                                                                                                          |
+| Otra expresión en un reto ya resuelto                                     | 409 (un solo intento por reto)                                                                                                                                                                                    |
+| Campos extra en el cuerpo (`points`, `streak`, `submittedAt`…)            | 400                                                                                                                                                                                                               |
+| Sesión/intento de otro jugador                                            | 404                                                                                                                                                                                                               |
 
 Formato de respuesta aceptado: `expresión` o `expresión = resultado` (p. ej. `41 + 1 = 42`). Operadores `+ - * /` (también
-`× ÷ −`), paréntesis y `-` unario; enteros solamente; máximo 200 caracteres.
+`× ÷ −`), paréntesis y `-` unario; además, según `syntax` del mundo, decimales exactos (`2.5`) y potencias de exponente
+entero acotado (`2 ^ 3`). En los enunciados `EQUATION` la respuesta debe valer `x` y no puede contener `x`. Máximo 200
+caracteres.
 
 ## Endpoints
 
@@ -53,16 +61,16 @@ Formato de respuesta aceptado: `expresión` o `expresión = resultado` (p. ej. `
 | POST   | `/auth/register`                        | 201, 400, 409       | Siempre crea un estudiante                                                                                                    |
 | POST   | `/auth/login`                           | 200, 400, 401, 429  | `{ accessToken, tokenType, expiresIn }`; crea una sesión                                                                      |
 | GET    | `/users/me`                             | 200, 401            |                                                                                                                               |
-| GET    | `/worlds`                               | 200                 | Mundos habilitados                                                                                                            |
-| GET    | `/progress`                             | 200, 403            | Progreso y **racha por mundo**                                                                                                |
-| GET    | `/worlds/:slug/progress`                | 200, 404            | Posición, racha, puntos, reglas, estadísticas, ids abiertos                                                                   |
-| GET    | `/worlds/:slug/rules`                   | 200, 404            | Reglas acumuladas (guardadas)                                                                                                 |
+| GET    | `/worlds`                               | 200                 | Mundos habilitados: `challengeCount` (secuencia normal), `ruleCount` (repertorio), `concepts`, `syntax`                       |
+| GET    | `/progress`                             | 200, 403            | Progreso y **racha por mundo**, con `unlocked`, `unlockRequirement`, `completionsCount`, `activeSequence`                     |
+| GET    | `/worlds/:slug/progress`                | 200, 404            | Posición, racha, puntos, reglas dominadas, secuencia activa, desbloqueo, estadísticas, ids abiertos                           |
+| GET    | `/worlds/:slug/rules`                   | 200, 404            | Reglas **dominadas** (superadas alguna vez); las activas son las de la secuencia                                              |
 | GET    | `/worlds/:slug/score?limit=`            | 200, 404            | Total, racha, próximo multiplicador, libro de puntos reciente                                                                 |
 | GET    | `/worlds/:slug/leaderboard?limit=`      | 200, 404            | Clasificación por puntos **solo entre compañeros de grupo** (sin grupo: solo el jugador); nombre y puntos, sin ids ni correos |
 | GET    | `/worlds/:slug/attempts?limit=&cursor=` | 200, 400, 404       | Historial (fallos y timeouts incluidos), más recientes primero                                                                |
-| POST   | `/worlds/:slug/sessions`                | 201 / 200, 404      | Crea o reanuda; `expiredAttempt` ≠ null si un reto venció en la ausencia (TIMEOUT)                                            |
+| POST   | `/worlds/:slug/sessions`                | 201 / 200, 403, 404 | Crea o reanuda; 403 si el mundo está bloqueado; `expiredAttempt` ≠ null si un reto venció en la ausencia (TIMEOUT)            |
 | POST   | `/sessions/:id/end`                     | 200, 404, 409       | 409 si hay un reto vigente                                                                                                    |
-| POST   | `/sessions/:id/attempts`                | 201 / 200, 404, 409 | Crea o reanuda el intento abierto                                                                                             |
+| POST   | `/sessions/:id/attempts`                | 201 / 200, 404, 409 | Crea o reanuda el intento abierto; sin secuencia activa, planifica una                                                        |
 | GET    | `/sessions/:id/attempts/current`        | 200, 404            |                                                                                                                               |
 | POST   | `/attempts/:id/answer`                  | 200, 400, 404, 409  | Cuerpo: `{ "expression": "…" }`                                                                                               |
 

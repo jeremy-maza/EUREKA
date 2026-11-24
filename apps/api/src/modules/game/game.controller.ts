@@ -44,11 +44,13 @@ export class GameController {
   @Post('worlds/:slug/sessions')
   @ApiOperation({
     summary: 'Inicia una sesión de juego en un mundo (o reanuda la abierta)',
-    description: 'No borra reglas ni progreso. 201 si se creó; 200 si se reanudó la sesión abierta.',
+    description:
+      'No borra progreso. 201 si se creó; 200 si se reanudó la sesión abierta. 403 si el mundo está bloqueado (hay que completar el anterior).',
   })
   @ApiCreatedResponse({ type: StartSessionResponseDto })
   @ApiOkResponse({ type: StartSessionResponseDto, description: 'Se reanudó la sesión abierta' })
   @ApiNotFoundResponse({ description: 'El mundo no existe' })
+  @ApiForbiddenResponse({ description: 'Mundo bloqueado: completa antes el mundo anterior' })
   async startSession(
     @CurrentUser() user: AuthenticatedUser,
     @Param('slug') slug: string,
@@ -75,7 +77,7 @@ export class GameController {
   @ApiOperation({
     summary: 'Inicia el reto actual (arranca el cronómetro del servidor) o devuelve el intento abierto',
     description:
-      'Un solo intento por reto. Si el intento abierto había vencido se cierra como TIMEOUT (la secuencia se reinicia, las reglas se conservan) y se inicia uno nuevo. 201 si se creó; 200 si se reanudó.',
+      'Un solo intento por reto. Si el intento abierto había vencido se cierra como TIMEOUT (la secuencia falla y sus reglas se descartan; los puntos se conservan) y se inicia el reto 1 de una secuencia nueva. Sin secuencia activa, se sortea una (subconjunto y orden de reglas). 201 si se creó; 200 si se reanudó.',
   })
   @ApiCreatedResponse({ type: ChallengeAttemptDto })
   @ApiOkResponse({ type: ChallengeAttemptDto, description: 'Se devolvió el intento ya abierto' })
@@ -109,7 +111,7 @@ export class GameController {
   @ApiOperation({
     summary: 'Envía la expresión del reto',
     description:
-      'Única entrada del cliente: la expresión. El servidor mide el tiempo, valida resultado y reglas, puntúa y actualiza progreso en una transacción. Un fallo o timeout termina el reto y reinicia la secuencia. Reenviar la misma respuesta es idempotente.',
+      'Única entrada del cliente: la expresión. El servidor mide el tiempo, valida resultado y reglas, puntúa y actualiza progreso en una transacción. Un fallo o timeout termina la secuencia y descarta sus reglas (los puntos se conservan). Reenviar la misma respuesta es idempotente.',
   })
   @ApiOkResponse({ type: AnswerResultDto })
   @ApiNotFoundResponse({ description: 'Intento inexistente o de otro usuario' })

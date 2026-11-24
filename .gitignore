@@ -24,3 +24,7 @@ apps/api/src/generated/
 .vscode/
 *.suo
 *.sw?
+
+# lockfiles de otros gestores (el proyecto usa npm: package-lock.json)
+pnpm-lock.yaml
+yarn.lock

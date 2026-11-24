@@ -3,18 +3,24 @@
 Juego educativo de matemáticas inspirado en _The Password Game_. El jugador resuelve retos escribiendo
 **expresiones matemáticas completas**; cada reto añade una **regla nueva** y todas las anteriores siguen activas.
 
-> Estado: **MVP jugable del Mundo 1 (Aritmética)**: registro/login, partida con temporizador, reglas acumuladas,
-> puntuación con multiplicador de racha, «Mi progreso», clasificación entre compañeros y panel docente de solo lectura,
-> sobre el backend (motor, JWT con sesiones revocables, puntuación auditable y API REST con Swagger). El frontend es
-> `apps/web`. Ver [Demo jugable](#demo-jugable) y [Alcance actual](#alcance-actual).
+> Estado: **los cinco mundos jugables como una progresión**. Cada secuencia sortea un subconjunto de las reglas del mundo
+> y su orden, y genera retos verificados; fallar o agotar el tiempo descarta esas reglas. Registro/login, temporizador del
+> servidor, puntuación con multiplicador de racha, dificultad adaptativa, desbloqueo de mundos, «Mi progreso»,
+> clasificación entre compañeros y panel docente de solo lectura. El frontend es `apps/web`.
+> Ver [Demo jugable](#demo-jugable), [Alcance actual](#alcance-actual) y el [plan maestro](./EUREKA_MASTER_PLAN.md).
 
 ## Mundos
 
-1. Aritmética ← _MVP, único mundo implementado en el motor_
-2. Números y signos
-3. Fracciones y decimales
-4. Álgebra
-5. Caos matemático
+| #   | Mundo                  | Conceptos                                                    | Sintaxis extra    | Reglas por secuencia (suave/normal/intensa) |
+| --- | ---------------------- | ------------------------------------------------------------ | ----------------- | ------------------------------------------- |
+| 1   | Aritmética             | Cuatro operaciones, jerarquía de operaciones, descomposición | —                 | 2 / 3 / 4 de 6                              |
+| 2   | Números y signos       | Números negativos, regla de los signos, resta                | —                 | 2 / 3 / 4 de 5                              |
+| 3   | Fracciones y decimales | Fracciones y decimales exactos, equivalencias                | decimales (`2.5`) | 2 / 3 / 4 de 5                              |
+| 4   | Álgebra                | Ecuaciones lineales (responder `x`), potencias, paréntesis   | potencias (`^`)   | 2 / 3 / 4 de 5                              |
+| 5   | Caos matemático        | Todo lo anterior combinado                                   | decimales + `^`   | 3 / 4 / 5 de 7                              |
+
+El Mundo _n_ se desbloquea al completar una secuencia entera del Mundo _n − 1_. Catálogo completo de reglas:
+[EUREKA_MASTER_PLAN.md §9](./EUREKA_MASTER_PLAN.md#9-catálogo-final-de-reglas).
 
 ## Estructura del repositorio
 
@@ -58,7 +64,7 @@ cp .env.example .env          # ajusta las credenciales si quieres
 npm run db:up                 # PostgreSQL en Docker (docker compose)
 npm run db:generate           # genera el cliente de Prisma
 npm run db:migrate            # aplica las migraciones (prisma migrate dev)
-npm run db:seed               # siembra el catálogo del Mundo 1 (OBLIGATORIO: la API lee los mundos de la BD)
+npm run db:seed               # siembra mundos y reglas de los 5 mundos (OBLIGATORIO: la API los referencia en la BD)
 
 # 4. Arrancar (en dos terminales)
 npm run dev:api               # API      → http://localhost:3000/api
@@ -95,33 +101,37 @@ puerto, porque la API rechazaría por CORS cualquier otro origen).
 | `VITE_API_URL` | apps/web | `http://localhost:3000/api` | URL base de la API (con `/api`)                        |
 | `CORS_ORIGIN`  | API      | `http://localhost:5173`     | Origen del frontend permitido por CORS (un solo valor) |
 
-Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `/juego`, `/final`, `/progreso` («Mi
-progreso»: puntos, rachas, reglas, estadísticas e historial), `/clasificaciones` (estudiantes; solo compañeros de grupo)
-y `/docente` (docentes; panel con estadísticas reales de sus grupos). Sin botón de pausa: el cronómetro es del servidor y
-no se puede detener.
+Rutas: `/acceso`, `/registro`, `/` (mapa de los cinco mundos con su estado), `/juego/:slug` (`/juego` lleva al mundo
+más relevante desbloqueado), `/final/:slug`, `/progreso/:slug?` («Mi progreso»), `/clasificaciones/:slug?` (estudiantes;
+solo compañeros de grupo) y `/docente` (docentes; panel con estadísticas reales de sus grupos). Sin botón de pausa: el
+cronómetro es del servidor y no se puede detener.
 
 ## Datos de demostración
 
 `npm run db:seed:demo` (tras `npm run db:seed`) crea cuentas con escenarios listos —jugador nuevo, progreso, secuencia
-fallida, avanzado (racha 8, ×5) y reto expirado— más un docente demo y su grupo. Se generan jugando contra el motor real,
+fallida, avanzado (racha 9, ×5, Mundo 3 desbloqueado), reto expirado y explorador (Mundo 5 desbloqueado)— más un docente
+demo y su grupo. Se generan jugando contra el motor real,
 son deterministas, no tocan usuarios reales y se niegan a ejecutarse en producción. Contraseña: `demo-eureka-2026`.
 Detalle, tabla de escenarios y reinicio: [docs/demo.md](./docs/demo.md).
 
 ## Demo jugable
 
 1. **Crear cuenta** (`/registro`: nombre, correo y contraseña de 8+ caracteres) → entras automáticamente.
-2. **Mundos → Jugar** (Mundo 1: Aritmética). La pantalla muestra puntos, racha y multiplicador del próximo acierto.
-3. **Reto**: una operación (p. ej. `3 * 7`). Escribe una **expresión** con el mismo valor que cumpla TODAS las reglas
-   activas (p. ej. `7 * 1 * 3`). El cronómetro es el del servidor; al llegar a 0 el servidor cierra el reto por tiempo.
-4. **Acierto**: suma `100 × multiplicador` (×1, ×1.5, ×2… hasta ×5 con la racha), desbloquea la regla del reto y pasa al siguiente.
-5. **Fallo** (resultado erróneo, sintaxis, regla rota o tiempo agotado): racha a 0 y la secuencia vuelve al reto 1;
-   los puntos y las reglas ya desbloqueadas se conservan (el aviso de fin permite reiniciar la secuencia).
-6. Completar los 4 retos cierra el mundo; **Jugar de nuevo** inicia otra tanda conservando reglas y puntos.
-7. **Mi progreso** (`/progreso`, enlace en el inicio): puntos, racha actual/mejor, multiplicador, reglas descubiertas,
-   estadísticas, historial de intentos y libro de puntos recientes; todo viene de la API.
+2. **Mapa de mundos → Jugar** (al principio solo el Mundo 1). Cada tarjeta muestra puntos, racha, reglas dominadas y estado.
+3. **Secuencia**: el servidor sortea qué reglas del mundo tocarán y en qué orden, y elige la dificultad según tu
+   rendimiento reciente (suave/normal/intensa = menos o más reglas y enunciados más complejos).
+4. **Reto**: una operación (p. ej. `3 * 7`) o, en Álgebra/Caos, una ecuación (`3 * x + 4 = 19` → escribe algo que valga
+   `x`). Escribe una **expresión** con ese valor que cumpla TODAS las reglas activas. El reto 1 no tiene reglas; cada reto
+   siguiente añade una. El cronómetro es el del servidor.
+5. **Acierto**: suma `100 × multiplicador` (×1, ×1.5, ×2… hasta ×5 con la racha); la regla del reto queda activa en la
+   secuencia y pasa a tu colección de **reglas dominadas**.
+6. **Fallo** (resultado erróneo, sintaxis, regla rota o tiempo agotado): fallo directo. Racha a 0, la secuencia termina y
+   **sus reglas se descartan**; la siguiente secuencia vuelve a sortear reglas y orden. Los puntos se conservan siempre.
+7. Completar la secuencia completa el mundo y **desbloquea el siguiente**; **Jugar de nuevo** sortea otra secuencia
+   conservando puntos y racha.
+8. **Mi progreso** y **Clasificaciones** tienen selector de mundo; todo viene de la API.
 
-Secuencia de referencia del Mundo 1 (soluciones válidas con todas las reglas acumuladas): `21` → `7*1*6` → `7*1` → `7*1*4+3*4`.
-El frontend no calcula nada del juego: solo muestra lo que devuelve la API (reto, reglas, plazo, puntos, racha).
+El frontend no calcula nada del juego: solo muestra lo que devuelve la API (reto, reglas, plazo, puntos, racha, desbloqueos).
 
 ### Sin Docker
 
@@ -241,11 +251,11 @@ la forma `{ statusCode, error, message, path, timestamp }`.
 | GET    | `/worlds`                                                                     | Mundos disponibles                                             |
 | GET    | `/progress`                                                                   | Progreso y racha en todos los mundos                           |
 | GET    | `/worlds/:slug/progress`                                                      | Progreso, racha, reglas, estadísticas en un mundo              |
-| GET    | `/worlds/:slug/rules`                                                         | Reglas acumuladas                                              |
+| GET    | `/worlds/:slug/rules`                                                         | Reglas dominadas (superadas alguna vez)                        |
 | GET    | `/worlds/:slug/leaderboard`                                                   | Clasificación entre compañeros de grupo (nombre y puntos)      |
 | GET    | `/worlds/:slug/score`                                                         | Puntos, racha, multiplicador y libro de puntos reciente        |
 | GET    | `/worlds/:slug/attempts`                                                      | Historial de intentos (cursor)                                 |
-| POST   | `/worlds/:slug/sessions`                                                      | Inicia (201) o reanuda (200) la sesión                         |
+| POST   | `/worlds/:slug/sessions`                                                      | Inicia (201) o reanuda (200) la sesión; 403 si está bloqueado  |
 | POST   | `/sessions/:id/end`                                                           | Termina la sesión                                              |
 | POST   | `/sessions/:id/attempts`                                                      | Inicia el reto actual (arranca el plazo) o devuelve el abierto |
 | GET    | `/sessions/:id/attempts/current`                                              | Reto en curso                                                  |
@@ -264,8 +274,11 @@ Primer administrador: `ADMIN_EMAIL=… ADMIN_NAME=… npm run admin:create` (ver
 Implementado y verificado:
 
 - Monorepo, TypeScript, ESLint, Prettier, variables de entorno validadas, Docker Compose para PostgreSQL.
-- **Motor del juego** (TypeScript puro) del Mundo 1: parser seguro, evaluación exacta, reglas extensibles y acumulativas,
-  temporizador, racha/puntuación en enteros, progresión y garantía de resolubilidad del catálogo.
+- **Motor del juego** (TypeScript puro) para los cinco mundos: parser seguro con sintaxis por mundo (decimales exactos,
+  potencias acotadas, ecuaciones lineales en `x`), evaluación exacta, 9 tipos de regla, generador determinista de retos
+  (familias de enunciados por mundo; toda solución de referencia verificada con el motor real), planificador de secuencias
+  (subconjunto y orden de reglas sorteados con semilla), temporizador, racha/puntuación en enteros, progresión,
+  desbloqueo de mundos y dificultad adaptativa.
 - **Cuentas y autenticación (solo backend)**: sesiones JWT revocables (`jti` ↔ `auth_sessions`; logout, logout-all, revocar una
   sesión, listado propio), cambio de contraseña, recuperación por correo (token de 256 bits guardado como SHA-256, un solo uso),
   limitador de login persistente en PostgreSQL (IP, correo e IP+correo; bloqueo temporal progresivo), política de
@@ -276,26 +289,31 @@ Implementado y verificado:
   de docentes por administradores, autorización por grupo con 404 uniforme y API del panel docente (actividad, estadísticas,
   estudiantes, intentos). En el frontend solo existe el panel docente **de solo lectura**: crear grupos, asignar docentes o
   añadir estudiantes se hace por API (ver [docs/groups-and-teachers.md](./docs/groups-and-teachers.md)).
-- Esquema Prisma con 4 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed.
+- Esquema Prisma con 5 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed. La
+  quinta (`…_world_sequences`) es aditiva: secuencias persistidas y backfill de compleciones desde el historial.
 - **Frontend** (`apps/web`, React 19 + Vite): registro y login (token en `localStorage`, rutas protegidas por
   sesión y rol), pantalla de juego (reto, reglas activas con la nueva resaltada, cuenta atrás del servidor, resultado,
-  reinicio de secuencia), inicio con mundos y progreso, «Mi progreso», clasificación entre compañeros de grupo y panel
-  docente de solo lectura. Solo el Mundo 1; los demás aparecen como «Próximamente». Sin pantallas de administración,
-  de recuperación ni de cambio de contraseña (la API sí existe). Pruebas automáticas en `npm test`.
+  reglas descartadas tras un fallo, ecuaciones y símbolos admitidos por mundo), mapa de los cinco mundos con desbloqueo,
+  «Mi progreso» y clasificación por mundo y panel docente de solo lectura. Sin pantallas de administración, de
+  recuperación ni de cambio de contraseña (la API sí existe). Pruebas automáticas en `npm test`.
 
-**No** implementado (módulos previstos): `rankings`, `rewards`, refresco de tokens, entrega real de correo (no hay proveedor
-configurado: ver [docs/authentication.md](./docs/authentication.md#6-correo-electrónico)), MFA,
-dificultad adaptativa (solo la interfaz `DifficultyPolicy`), mundos 2-5.
+**No** implementado (módulos previstos): `rewards`, refresco de tokens, entrega real de correo (no hay proveedor
+configurado: ver [docs/authentication.md](./docs/authentication.md#6-correo-electrónico)), MFA.
 
 ## Motor matemático (resumen)
 
 - Parser de descenso recursivo → AST (sin `eval`/`new Function`); alfabeto cerrado: dígitos, `+ - * / ( ) =`
-  (también `× ÷ −`). Sin decimales ni multiplicación implícita.
+  (también `× ÷ −`), más `.`/`,` (decimales) y `^` (potencias) en los mundos que los admiten. Sin multiplicación implícita.
+  La incógnita `x` solo aparece en enunciados de ecuación, nunca en respuestas.
 - Evaluación con fracciones exactas (`BigInt`): `7 / 2 * 2` vale exactamente `7`; división entre cero detectada.
 - Una respuesta es `expresión` o `expresión = resultado` (p. ej. `41 + 1 = 42`). El resultado declarado debe coincidir
   con el valor, pero **no** está sujeto a las reglas.
-- Reglas estructuradas (`id`, `type`, `description`, `config`) separadas de los retos; tipos implementados:
-  `FORBIDDEN_DIGIT` y `REQUIRED_OPERATION`. Se añaden tipos nuevos registrando un `RuleHandler`.
+- Reglas estructuradas (`id`, `type`, `description`, `config`) separadas de los retos; tipos: `FORBIDDEN_DIGIT`,
+  `REQUIRED_OPERATION`, `REQUIRED_OPERATOR`, `FORBIDDEN_OPERATOR`, `MIN_NUMBERS`, `MAX_NUMBER`, `REQUIRED_NEGATIVE`,
+  `REQUIRED_DECIMAL` y `REQUIRED_PARENTHESES`. Se añaden tipos nuevos registrando un `RuleHandler`.
+- Los retos se **generan** por secuencia (semilla del servidor guardada con la secuencia ⇒ reproducibles) y cada uno se
+  verifica antes de presentarse: resoluble con exactamente sus reglas activas y sin poder evadirlas enviando el enunciado
+  o el resultado.
 - Tiempo, puntuación y racha configurables; el reloj siempre es del servidor.
 
 Más detalle en [docs/architecture.md](./docs/architecture.md).

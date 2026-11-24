@@ -1,9 +1,12 @@
 import { ChallengeEngine } from '../challenges';
-import { ProgressionManager, WorldProgressState } from '../progression';
+import { PlayableSequence, ProgressionManager, WorldProgressState } from '../progression';
 import { ScoringEngine } from '../scoring';
 import { WorldDefinition } from '../worlds';
 import { ActiveChallenge, AttemptResult } from './game.types';
 import { TimerManager } from './timer-manager';
+
+/** Mensaje de un reto cerrado por tiempo (también identifica los cerrados por el servidor sin envío). */
+export const TIMEOUT_MESSAGE = 'Se acabó el tiempo.';
 
 export class GameStateError extends Error {
   constructor(message: string) {
@@ -21,7 +24,10 @@ export interface GameEngineDependencies {
 
 export interface SubmitAnswerInput {
   state: WorldProgressState;
+  /** Mundo: aporta la sintaxis admitida en las respuestas. */
   world: WorldDefinition;
+  /** Secuencia en curso (retos generados). */
+  sequence: PlayableSequence;
   activeChallenge: ActiveChallenge;
   submission: string;
   /** Instante de recepción medido por el SERVIDOR. */
@@ -37,26 +43,32 @@ export class GameEngine {
   constructor(private readonly deps: GameEngineDependencies) {}
 
   /**
-   * Presenta el reto actual y fija el plazo según las reglas activas (acumuladas + la del reto).
-   * No modifica el progreso: la regla nueva solo se desbloquea si el jugador acierta.
+   * Presenta el reto actual de la secuencia y fija el plazo según las reglas activas (superadas + la del reto)
+   * y el tiempo extra del mundo. No modifica el progreso: la regla nueva solo se acumula si el jugador acierta.
    */
-  startChallenge(state: WorldProgressState, world: WorldDefinition, now: Date): ActiveChallenge {
+  startChallenge(
+    state: WorldProgressState,
+    world: WorldDefinition,
+    sequence: PlayableSequence,
+    now: Date,
+  ): ActiveChallenge {
     const { progressionManager, timerManager } = this.deps;
-    const { challenge, activeRules } = progressionManager.presentChallenge(state, world);
+    const { challenge, activeRules } = progressionManager.presentChallenge(state, sequence);
+    const extra = world.sequence.extraTimeSeconds;
 
     return {
       challenge,
       activeRules,
       startedAt: now,
-      deadlineAt: timerManager.calculateDeadline(now, activeRules.length),
-      timeLimitSeconds: timerManager.calculateTimeLimitSeconds(activeRules.length),
+      deadlineAt: timerManager.calculateDeadline(now, activeRules.length, extra),
+      timeLimitSeconds: timerManager.calculateTimeLimitSeconds(activeRules.length, extra),
       streakBefore: state.streak,
     };
   }
 
   /** Resuelve el único intento del reto. Si llega fuera de plazo es un timeout (no se evalúa). */
   submitAnswer(input: SubmitAnswerInput): AttemptResult {
-    const { state, world, activeChallenge, submission, submittedAt } = input;
+    const { state, world, sequence, activeChallenge, submission, submittedAt } = input;
     this.assertCurrent(state, activeChallenge);
     const { challengeEngine, timerManager, scoringEngine, progressionManager } = this.deps;
 
@@ -66,13 +78,14 @@ export class GameEngine {
       submittedAt,
     );
     if (!timing.withinTime) {
-      return this.fail(input.state, 'TIMEOUT', 'Se acabó el tiempo.', null, timing.elapsedMs);
+      return this.fail(input.state, 'TIMEOUT', TIMEOUT_MESSAGE, null, timing.elapsedMs);
     }
 
     const evaluation = challengeEngine.evaluateSubmission({
       challenge: activeChallenge.challenge,
       activeRules: activeChallenge.activeRules,
       submission,
+      syntax: world.syntax,
     });
 
     if (!evaluation.isCorrect) {
@@ -87,7 +100,7 @@ export class GameEngine {
     }
 
     const award = scoringEngine.scoreCorrect(state.streak);
-    const nextState = progressionManager.recordCorrect(state, award, world);
+    const nextState = progressionManager.recordCorrect(state, award, sequence);
     const unlockedRuleId =
       nextState.unlockedRuleIds.find((id) => !state.unlockedRuleIds.includes(id)) ?? null;
     return {
@@ -115,7 +128,7 @@ export class GameEngine {
       throw new GameStateError('El plazo del reto todavía no ha vencido.');
     }
     const elapsedMs = now.getTime() - activeChallenge.startedAt.getTime();
-    return this.fail(state, 'TIMEOUT', 'Se acabó el tiempo.', null, elapsedMs);
+    return this.fail(state, 'TIMEOUT', TIMEOUT_MESSAGE, null, elapsedMs);
   }
 
   private fail(
