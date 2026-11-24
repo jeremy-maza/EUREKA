@@ -3,13 +3,16 @@ node_modules/
 
 # build
 dist/
+dist-ssr/
 coverage/
+.vitest/
 *.tsbuildinfo
 
 # entorno (nunca commitear secretos)
 .env
 .env.*
 !.env.example
+*.local
 
 # Prisma: cliente generado
 apps/api/src/generated/
@@ -19,3 +22,5 @@ apps/api/src/generated/
 *.log
 .idea/
 .vscode/
+*.suo
+*.sw?

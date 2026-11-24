@@ -5,8 +5,35 @@
 Monolito modular (sin microservicios):
 
 ```
-apps/web  (React) ──HTTP /api──▶ apps/api (NestJS) ──Prisma──▶ PostgreSQL
+apps/web (React + Vite) ──HTTP /api──▶ apps/api (NestJS) ──Prisma──▶ PostgreSQL
 ```
+
+Dos workspaces de npm, sin código compartido entre ellos (ver ADR 13): `apps/web` (`@mbr/web`, puerto 5173, llama a la
+API con `VITE_API_URL`; CORS) y `apps/api` (`@mbr/api`, puerto 3000). Ver el [README](../README.md#frontend-appsweb).
+
+### Frontend (`apps/web/src`)
+
+Organizado por **funcionalidades** (`features/`) más unas pocas capas compartidas. El detalle de cada carpeta, rutas y
+pruebas está en [`apps/web/README.md`](../apps/web/README.md).
+
+```
+app/            Shell: App (BrowserRouter) y router/AppRoutes (tabla de rutas y guards)
+features/       auth · game · home · progress · leaderboard · teacher (páginas, componentes y lógica propios)
+components/ui   Piezas visuales sin conocimiento de la app (Logo, ScreenMessage, FloatingIsland)
+components/common  Componentes compartidos que conocen la app (InsightsHeader: navegación y sesión)
+services/api    Cliente HTTP (`client.ts`) y contratos de la API (`types.ts`)
+services/storage  Persistencia del token en `localStorage`
+lib/            Constantes de dominio compartidas (`worlds.ts`)
+styles/         Estilos globales y variables de la identidad visual
+assets/         Imágenes por propósito (grillo, fondos)
+```
+
+Reglas de dependencia (sin ciclos; comprobado al consolidar el monorepo):
+
+- `app → features → components / services / lib`. Las capas compartidas no importan de `features/` ni de `app/`.
+- Una funcionalidad no importa de otra, con **una** excepción explícita: `features/auth` expone la sesión (`AuthProvider`,
+  `useAuth`), que es estado global y la consumen `home` y `components/common/InsightsHeader`.
+- El frontend no importa nada de `apps/api`: solo habla con él por HTTP.
 
 El backend se organiza por **dominios**, no por capas genéricas. Las clases del motor del juego son TypeScript
 **puro** (sin decoradores de Nest, sin Prisma, sin reloj propio) y Nest solo las cablea en los módulos mediante
@@ -176,8 +203,9 @@ Prisma no expresa estos objetos; viven en el SQL de la migración (las pruebas d
 
 ## Registro de decisiones (ADR)
 
-1. **npm workspaces, sin `packages/` por ahora.** No hay código compartido que lo justifique; se evita infraestructura
-   (Turborepo/Nx) innecesaria.
+1. **npm workspaces (`apps/*`), sin `packages/` por ahora.** No hay código compartido que lo justifique; se evita
+   infraestructura (Turborepo/Nx) innecesaria. Un único frontend: `apps/web` (el antiguo `frontend/` de la raíz se movió
+   ahí y el primer prototipo, que ocupaba `apps/web`, se retiró porque la app actual cubre todas sus funciones).
 2. **NestJS 11 (CJS) y no 12.** La serie 12 es ESM-first y su plantilla usa Vitest; el requisito fija **Jest**, y Jest con ESM
    es experimental. Nest 11 + Jest 30 + ts-jest es el camino estable. Migrar a 12 será una tarea acotada (ESM + runner de tests).
 3. **TypeScript 6.0.** TS 7 (compilador nativo) aún no es compatible con `ts-jest` (`<7`) ni `typescript-eslint` (`<6.1`).
@@ -205,6 +233,11 @@ Prisma no expresa estos objetos; viven en el SQL de la migración (las pruebas d
     `@nestjs/throttler` (en memoria, sin contador por correo ni conteo atómico previo). Las recuperaciones usan tokens de 256 bits
     guardados solo como SHA-256 y reclamados con un `UPDATE` atómico en la misma transacción que el cambio de contraseña.
     Detalle y limitaciones: [authentication.md](./authentication.md).
+13. **Contratos de la API duplicados a mano, no en un paquete compartido.** Los DTO del backend son clases de Nest con
+    decoradores de `class-validator`/Swagger (CommonJS, `nodenext`), y el frontend es ESM para un bundler. Compartirlos
+    obligaría a extraer tipos planos, añadir un paquete con su propia compilación y acoplar el despliegue de ambas apps,
+    para unas ~280 líneas de tipos. Se mantienen en `apps/web/src/services/api/types.ts` y se revisan al cambiar un DTO.
+    Se reevaluará (p. ej. generando los tipos desde el OpenAPI de `/api/docs-json`) si los contratos crecen o divergen.
 
 ## Supuestos (a confirmar)
 

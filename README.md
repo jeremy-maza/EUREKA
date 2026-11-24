@@ -4,8 +4,9 @@ Juego educativo de matemáticas inspirado en _The Password Game_. El jugador res
 **expresiones matemáticas completas**; cada reto añade una **regla nueva** y todas las anteriores siguen activas.
 
 > Estado: **MVP jugable del Mundo 1 (Aritmética)**: registro/login, partida con temporizador, reglas acumuladas,
-> puntuación con multiplicador de racha y vista de progreso, sobre el backend (motor, JWT con sesiones revocables,
-> puntuación auditable y API REST con Swagger). Ver [Demo jugable](#demo-jugable) y [Alcance actual](#alcance-actual).
+> puntuación con multiplicador de racha, «Mi progreso», clasificación entre compañeros y panel docente de solo lectura,
+> sobre el backend (motor, JWT con sesiones revocables, puntuación auditable y API REST con Swagger). El frontend es
+> `apps/web`. Ver [Demo jugable](#demo-jugable) y [Alcance actual](#alcance-actual).
 
 ## Mundos
 
@@ -19,13 +20,24 @@ Juego educativo de matemáticas inspirado en _The Password Game_. El jugador res
 
 ```
 apps/
-  api/   NestJS + Prisma 7 + PostgreSQL (REST, Swagger)
-  web/   React + Vite + TypeScript
-docs/    Arquitectura y decisiones (ADR)
+  api/                NestJS + Prisma 7 + PostgreSQL (REST, Swagger)        → workspace @mbr/api
+  web/                React 19 + Vite + TypeScript (la aplicación del juego) → workspace @mbr/web
+docs/                 Arquitectura, API, autenticación, grupos y demo (incluye ADR)
+package.json          Workspaces (`apps/*`) y scripts de todo el monorepo
+package-lock.json     Único lockfile (npm)
+eslint.config.mjs     ESLint (flat config) para todo el repositorio
+.prettierrc.json      Prettier para todo el repositorio
+docker-compose.yml    PostgreSQL local
+.env.example          Variables de la API y de Docker Compose (se copia a `.env`)
+.nvmrc                Versión de Node recomendada
 ```
 
-Monorepo con **npm workspaces**. No hay `packages/` compartidos porque todavía no hay código reutilizable
-entre frontend y backend (se creará cuando haya tipos/contratos que lo justifiquen).
+Monorepo con **npm workspaces** (`apps/*`): una sola instalación (`npm install` en la raíz) y un solo
+`package-lock.json`. ESLint, Prettier y EditorConfig se configuran una vez en la raíz; cada app conserva solo su
+configuración propia (TypeScript, Vite/Vitest, Nest/Jest/Prisma). **No hay `packages/` compartidos**: los contratos de la
+API se mantienen a mano en `apps/web/src/services/api/types.ts` (motivo en el
+[ADR 13](./docs/architecture.md#registro-de-decisiones-adr)). Estructura interna de cada app:
+[docs/architecture.md](./docs/architecture.md) y [`apps/web/README.md`](./apps/web/README.md).
 
 ## Requisitos
 
@@ -49,40 +61,44 @@ npm run db:migrate            # aplica las migraciones (prisma migrate dev)
 npm run db:seed               # siembra el catálogo del Mundo 1 (OBLIGATORIO: la API lee los mundos de la BD)
 
 # 4. Arrancar (en dos terminales)
-npm run dev:api               # API   → http://localhost:3000/api
-npm run dev:web               # Web   → http://localhost:5173
+npm run dev:api               # API      → http://localhost:3000/api
+npm run dev:web               # Frontend → http://localhost:5173   (apps/web)
 ```
 
 - Abre <http://localhost:5173> y sigue la [demo jugable](#demo-jugable).
 - Health check: <http://localhost:3000/api/health> (liveness) y `/api/health/ready` (comprueba la BD).
 - Swagger / OpenAPI: <http://localhost:3000/api/docs> (JSON en `/api/docs-json`).
-- El frontend llama a `/api/*`; Vite lo reenvía al backend (proxy) para evitar CORS en desarrollo.
+- El frontend principal llama a la API directamente (`VITE_API_URL`, por defecto `http://localhost:3000/api`), así que el
+  origen del frontend debe coincidir con `CORS_ORIGIN` de la API (por defecto `http://localhost:5173`).
 
 > La API arranca aunque la base de datos no esté disponible (la conexión es perezosa); solo
 > `/api/health/ready` devolverá 503.
 
-## Frontend de la demo visual (`frontend/`)
+## Frontend (`apps/web`)
 
-`frontend/` es la demo visual (React 19 + Vite + pnpm, fuera de los workspaces de npm) conectada a la misma API. Usa
-la API real para registro/login, mundos, progreso, sesión de juego, reto, reglas, puntuación, racha y cronómetro
-(el servidor decide todo; el frontend solo muestra). Como `apps/web`, usa el puerto 5173: arranca uno u otro.
+`apps/web` (React 19 + Vite + TypeScript, workspace `@mbr/web`) es la única aplicación frontend. Usa la API real para
+registro/login, mundos, progreso, sesión de juego, reto, reglas, puntuación, racha, cronómetro, clasificación y panel
+docente: el servidor decide todo y el frontend solo lo muestra. Detalle de su estructura y pruebas:
+[`apps/web/README.md`](./apps/web/README.md).
 
 ```bash
-# API + BD como arriba (incluido `npm run db:seed`), y luego:
-cd frontend
-cp .env.example .env.local    # VITE_API_URL=http://localhost:3000/api
-pnpm install
-pnpm dev                      # → http://localhost:5173 (debe coincidir con CORS_ORIGIN de la API)
+# API + BD como arriba (incluido `npm run db:seed`), y luego, desde la raíz:
+npm run dev:web               # → http://localhost:5173
+# opcional: `cp apps/web/.env.example apps/web/.env.local` para cambiar VITE_API_URL
 ```
+
+**Puerto:** el frontend usa **5173** (`strictPort`: si está ocupado, Vite falla en voz alta en lugar de cambiar de
+puerto, porque la API rechazaría por CORS cualquier otro origen).
 
 | Variable       | Dónde    | Por defecto                 | Descripción                                            |
 | -------------- | -------- | --------------------------- | ------------------------------------------------------ |
-| `VITE_API_URL` | frontend | `http://localhost:3000/api` | URL base de la API (con `/api`)                        |
+| `VITE_API_URL` | apps/web | `http://localhost:3000/api` | URL base de la API (con `/api`)                        |
 | `CORS_ORIGIN`  | API      | `http://localhost:5173`     | Origen del frontend permitido por CORS (un solo valor) |
 
-Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `/juego`, `/final`, `/clasificaciones`
-(estudiantes; solo compañeros de grupo) y `/docente` (docentes; panel con estadísticas reales de sus grupos). Sin botón de pausa: el
-cronómetro es del servidor y no se puede detener.
+Rutas: `/acceso`, `/registro`, `/` (inicio: mundos, progreso y estadísticas), `/juego`, `/final`, `/progreso` («Mi
+progreso»: puntos, rachas, reglas, estadísticas e historial), `/clasificaciones` (estudiantes; solo compañeros de grupo)
+y `/docente` (docentes; panel con estadísticas reales de sus grupos). Sin botón de pausa: el cronómetro es del servidor y
+no se puede detener.
 
 ## Datos de demostración
 
@@ -99,9 +115,10 @@ Detalle, tabla de escenarios y reinicio: [docs/demo.md](./docs/demo.md).
    activas (p. ej. `7 * 1 * 3`). El cronómetro es el del servidor; al llegar a 0 el servidor cierra el reto por tiempo.
 4. **Acierto**: suma `100 × multiplicador` (×1, ×1.5, ×2… hasta ×5 con la racha), desbloquea la regla del reto y pasa al siguiente.
 5. **Fallo** (resultado erróneo, sintaxis, regla rota o tiempo agotado): racha a 0 y la secuencia vuelve al reto 1;
-   los puntos y las reglas ya desbloqueadas se conservan (**Reiniciar secuencia**).
+   los puntos y las reglas ya desbloqueadas se conservan (el aviso de fin permite reiniciar la secuencia).
 6. Completar los 4 retos cierra el mundo; **Jugar de nuevo** inicia otra tanda conservando reglas y puntos.
-7. **Mi progreso**: puntos, racha actual/mejor, multiplicador, reglas, estadísticas e historial de intentos.
+7. **Mi progreso** (`/progreso`, enlace en el inicio): puntos, racha actual/mejor, multiplicador, reglas descubiertas,
+   estadísticas, historial de intentos y libro de puntos recientes; todo viene de la API.
 
 Secuencia de referencia del Mundo 1 (soluciones válidas con todas las reglas acumuladas): `21` → `7*1*6` → `7*1` → `7*1*4+3*4`.
 El frontend no calcula nada del juego: solo muestra lo que devuelve la API (reto, reglas, plazo, puntos, racha).
@@ -152,12 +169,14 @@ Detalle de las de autenticación (límites, correo, proxies): [docs/authenticati
 
 | Comando                   | Qué hace                                                           |
 | ------------------------- | ------------------------------------------------------------------ |
+| `npm run dev:api`         | API en desarrollo (<http://localhost:3000/api>)                    |
+| `npm run dev:web`         | Frontend `apps/web` (<http://localhost:5173>)                      |
 | `npm run verify`          | typecheck + lint + format:check + tests + build (todo lo anterior) |
-| `npm test`                | Tests del API (Jest) y del web (Vitest)                            |
-| `npm run typecheck`       | `tsc --noEmit` en ambas apps                                       |
+| `npm test`                | Tests de la API (Jest) y del frontend (Vitest)                     |
+| `npm run typecheck`       | TypeScript en `apps/api` y `apps/web`                              |
 | `npm run lint`            | ESLint (flat config) en todo el monorepo                           |
-| `npm run format[:check]`  | Prettier                                                           |
-| `npm run build`           | Compila API (`apps/api/dist`) y web (`apps/web/dist`)              |
+| `npm run format[:check]`  | Prettier en todo el repositorio                                    |
+| `npm run build`           | Compila la API (`apps/api/dist`) y el frontend (`apps/web/dist`)   |
 | `npm run db:up / db:down` | Levanta / detiene PostgreSQL con Docker Compose                    |
 | `npm run db:generate`     | `prisma generate`                                                  |
 | `npm run db:migrate`      | `prisma migrate dev` (crea/aplica migraciones en desarrollo)       |
@@ -168,11 +187,13 @@ Detalle de las de autenticación (límites, correo, proxies): [docs/authenticati
 | `npm run auth:cleanup`    | Purga sesiones/tokens/contadores de autenticación caducados        |
 
 En `apps/api` también: `npm run test:cov` (cobertura), `npm run db:studio`, `npm run db:migrate:deploy` (producción).
+En `apps/web`: `npm run test:watch -w apps/web` (pruebas en modo observación) y `npm run preview -w apps/web`.
 
 ## Pruebas
 
 ```bash
-npm test                          # todo: API (unitarias + integración) y web
+npm test                          # todo: API (unitarias + integración) y frontend
+npm run test -w apps/web          # solo el frontend (Vitest + Testing Library)
 npm run test:unit -w apps/api     # unitarias del backend (Jest + ts-jest), ~1 s
 npm run test:integration -w apps/api  # integración HTTP + PostgreSQL real, ~7 s
 npm run test:cov -w apps/api      # cobertura de las unitarias
@@ -184,6 +205,11 @@ npm run test:cov -w apps/api      # cobertura de las unitarias
 - **Integración:** la aplicación Nest COMPLETA (guards, pipes, filtros) sobre HTTP real y **PostgreSQL real**: un
   PGlite (Postgres en WASM) en proceso al que se aplican **las migraciones SQL del repositorio**. No necesitan Docker.
   El reloj del servidor es inyectable (`Clock`), así que los plazos se prueban sin esperas.
+- **Frontend (`apps/web`):** Vitest + Testing Library sobre jsdom, con la API simulada a nivel de `fetch`
+  (`src/test/utils.tsx`; una ruta sin simular falla la prueba). Montan las rutas reales de la app y cubren registro,
+  acceso, rutas protegidas por sesión y rol, sesión caducada, partida (acierto, progresión de reglas, fallo, reinicio,
+  tiempo agotado, conflictos y errores de la API), «Mi progreso», inicio, clasificación, panel docente (carga y cambio de
+  grupo/estudiante) y el cliente HTTP.
 - Limitación: PGlite comparte una sola sesión, por lo que la CI ejecuta las pruebas con un pool de 1 conexión. La
   serialización entre peticiones concurrentes (`FOR UPDATE`) se prueba de forma lógica, no con paralelismo real de
   conexiones; conviene un smoke test adicional contra un PostgreSQL de verdad (Docker) antes de producción.
@@ -216,6 +242,7 @@ la forma `{ statusCode, error, message, path, timestamp }`.
 | GET    | `/progress`                                                                   | Progreso y racha en todos los mundos                           |
 | GET    | `/worlds/:slug/progress`                                                      | Progreso, racha, reglas, estadísticas en un mundo              |
 | GET    | `/worlds/:slug/rules`                                                         | Reglas acumuladas                                              |
+| GET    | `/worlds/:slug/leaderboard`                                                   | Clasificación entre compañeros de grupo (nombre y puntos)      |
 | GET    | `/worlds/:slug/score`                                                         | Puntos, racha, multiplicador y libro de puntos reciente        |
 | GET    | `/worlds/:slug/attempts`                                                      | Historial de intentos (cursor)                                 |
 | POST   | `/worlds/:slug/sessions`                                                      | Inicia (201) o reanuda (200) la sesión                         |
@@ -245,14 +272,16 @@ Implementado y verificado:
   contraseñas y abstracción de correo. Detalle, flujos, configuración y limitaciones: [docs/authentication.md](./docs/authentication.md).
 - **Persistencia y API**: auth JWT (estudiantes/docentes/admin con guards por rol), sesiones, intentos con plazo del
   servidor, resolución transaccional e idempotente, libro de puntos solo-inserción, estadísticas, historial.
-- **Grupos y docentes (solo backend)**: grupos con baja lógica, asignaciones docente↔grupo y membresías con historial, aprovisionamiento
+- **Grupos y docentes (backend)**: grupos con baja lógica, asignaciones docente↔grupo y membresías con historial, aprovisionamiento
   de docentes por administradores, autorización por grupo con 404 uniforme y API del panel docente (actividad, estadísticas,
-  estudiantes, intentos). Sin vistas.
+  estudiantes, intentos). En el frontend solo existe el panel docente **de solo lectura**: crear grupos, asignar docentes o
+  añadir estudiantes se hace por API (ver [docs/groups-and-teachers.md](./docs/groups-and-teachers.md)).
 - Esquema Prisma con 4 migraciones (incluye índices únicos parciales, CHECKs y trigger de solo-inserción) y seed.
-- **Frontend jugable** (React + Vite, sin dependencias nuevas): registro, login (token en `localStorage`, rutas protegidas),
-  pantalla de juego (reto, reglas activas con la nueva resaltada, cuenta atrás, resultado, reinicio de secuencia),
-  barra de puntos/racha/multiplicador y página «Mi progreso». Solo el Mundo 1; los demás aparecen como «Próximamente».
-  Sin pantallas de panel docente, administración ni recuperación de contraseña (la API sí existe).
+- **Frontend** (`apps/web`, React 19 + Vite): registro y login (token en `localStorage`, rutas protegidas por
+  sesión y rol), pantalla de juego (reto, reglas activas con la nueva resaltada, cuenta atrás del servidor, resultado,
+  reinicio de secuencia), inicio con mundos y progreso, «Mi progreso», clasificación entre compañeros de grupo y panel
+  docente de solo lectura. Solo el Mundo 1; los demás aparecen como «Próximamente». Sin pantallas de administración,
+  de recuperación ni de cambio de contraseña (la API sí existe). Pruebas automáticas en `npm test`.
 
 **No** implementado (módulos previstos): `rankings`, `rewards`, refresco de tokens, entrega real de correo (no hay proveedor
 configurado: ver [docs/authentication.md](./docs/authentication.md#6-correo-electrónico)), MFA,

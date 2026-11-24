@@ -1,7 +1,7 @@
 # Autenticación, sesiones y gestión de cuentas
 
-Backend únicamente: no hay pantallas. Este documento describe la API que consumirá el futuro frontend, las decisiones de
-seguridad y sus límites. Referencia rápida de rutas: [api.md](./api.md). Swagger: `/api/docs`.
+Este documento describe la API de cuentas, las decisiones de seguridad y sus límites. El frontend (`apps/web`)
+ya implementa registro, acceso y cierre de sesión; **no** hay pantallas de recuperación ni de cambio de contraseña (solo la API). Referencia rápida de rutas: [api.md](./api.md). Swagger: `/api/docs`.
 
 ## 1. Arquitectura
 

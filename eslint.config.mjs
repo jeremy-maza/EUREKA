@@ -27,7 +27,7 @@ export default tseslint.config(
     files: ['apps/api/src/modules/challenges/rules/rule-engine.ts'],
     rules: { '@typescript-eslint/no-explicit-any': 'off' },
   },
-  // Frontend (React)
+  // Frontend (React / navegador)
   {
     files: ['apps/web/**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
@@ -36,6 +36,11 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
+  },
+  {
+    // El refresco en caliente no aplica a las pruebas: pueden mezclar componentes auxiliares y utilidades.
+    files: ['apps/web/src/test/**/*.{ts,tsx}', 'apps/web/**/*.test.{ts,tsx}'],
+    rules: { 'react-refresh/only-export-components': 'off' },
   },
   eslintConfigPrettier,
 );

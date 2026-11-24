@@ -1,0 +1,892 @@
+.page {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+  background: #bceaff;
+}
+
+.header {
+  position: absolute;
+  z-index: 4;
+  inset: 0 0 auto;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 24px;
+  background: linear-gradient(180deg, rgba(255, 253, 247, 0.62), rgba(255, 253, 247, 0.16) 72%, transparent);
+}
+
+.worldName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #547487;
+  font-size: 12px;
+  font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.worldName strong {
+  color: var(--leaf);
+  font-size: 15px;
+}
+
+.worldDot {
+  width: 10px;
+  height: 10px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--orange);
+  box-shadow: 0 1px 4px rgba(111, 92, 54, 0.2);
+}
+
+.challengeMeta {
+  justify-self: end;
+  width: 180px;
+  color: #547487;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+  text-shadow:
+    0 1px 0 white,
+    0 0 8px rgba(255, 255, 255, 0.9);
+}
+
+.challengeMeta strong {
+  color: var(--leaf);
+}
+
+.progressBar {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.progressBar i {
+  height: 6px;
+  flex: 1;
+  border-radius: 99px;
+  background: rgba(91, 131, 117, 0.24);
+}
+
+.progressBar i.complete {
+  background: var(--green);
+}
+
+.actions button {
+  display: grid;
+  width: 39px;
+  height: 39px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #446476;
+  background: rgba(255, 253, 247, 0.76);
+  transition: transform 150ms ease;
+}
+
+.actions button:hover:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.actions button:disabled {
+  opacity: 0.55;
+}
+
+.timer {
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  left: 50%;
+  width: 124px;
+  padding: 7px 10px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 14px;
+  background: rgba(255, 253, 247, 0.9);
+  box-shadow: 0 3px 10px rgba(67, 109, 115, 0.14);
+  transform: translateX(-50%);
+  transition:
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+
+.timer[data-level='green'] {
+  color: #27845b;
+}
+.timer[data-level='yellow'] {
+  color: #b57918;
+}
+.timer[data-level='red'] {
+  color: #c94d43;
+}
+
+.timerReadout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  line-height: 1;
+}
+
+.timerReadout span {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.timerReadout strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timerTrack {
+  width: 100%;
+  height: 5px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(79, 111, 102, 0.14);
+}
+
+.timerProgress {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+  transition: width 900ms linear;
+}
+
+.timerUrgent {
+  animation: timerUrgency 950ms ease-in-out infinite;
+}
+
+.layout {
+  position: absolute;
+  inset: 0;
+  min-height: 100vh;
+}
+
+.stage {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background-color: #bceaff;
+  background-image: linear-gradient(180deg, #c8efff 0%, #e0f7ff 59%, #a7dca0 100%);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.illustratedStage {
+  background-image: none;
+}
+
+.stage::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 253, 247, 0.08), transparent 35%, rgba(35, 101, 75, 0.08));
+  content: '';
+  pointer-events: none;
+}
+
+.illustratedStage::before {
+  background: linear-gradient(180deg, rgba(255, 253, 247, 0.12), transparent 25%, rgba(35, 101, 75, 0.04));
+}
+
+.stageTrack {
+  position: absolute;
+  inset: 0;
+}
+
+.stagePlatform {
+  position: absolute;
+  width: clamp(110px, 14vw, 180px);
+  height: auto;
+  aspect-ratio: 2.5 / 1;
+  transform: translate(-50%, -35%);
+}
+
+.illustratedStage .stagePlatform {
+  display: none;
+}
+
+.challengeCard {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  width: min(560px, 43vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  background: transparent;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.challengeTopline {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.challengeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #99621c;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-shadow:
+    0 1px 0 white,
+    0 0 8px rgba(255, 255, 255, 0.9);
+}
+
+.challengeCard h1 {
+  max-width: 100%;
+  margin: 11px 0 0;
+  color: #326681;
+  font-size: clamp(78px, 9vw, 118px);
+  line-height: 0.98;
+  letter-spacing: -0.07em;
+  text-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.9),
+    0 0 10px rgba(255, 255, 255, 0.8),
+    0 4px 14px rgba(57, 106, 128, 0.12);
+  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.24);
+}
+
+.challengeCard > p {
+  margin: 8px 0 17px;
+  color: #465f6c;
+  font-size: 15px;
+  font-weight: 800;
+  text-shadow:
+    0 1px 0 white,
+    0 0 10px rgba(255, 255, 255, 0.9);
+}
+
+.challengeCard form {
+  width: min(390px, 100%);
+  text-align: left;
+}
+
+.challengeCard form label {
+  display: block;
+  width: 100%;
+  margin: 0 0 6px;
+  color: #526c79;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+  text-shadow:
+    0 1px 0 white,
+    0 0 8px white;
+}
+
+.answerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.answerRow input {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border: 2px solid rgba(208, 227, 224, 0.95);
+  border-radius: 16px;
+  outline: 0;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 3px 8px rgba(71, 107, 101, 0.12);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.answerRow input::placeholder {
+  color: #9aaab0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.answerRow input:focus-visible {
+  outline: 3px solid rgba(71, 185, 232, 0.45);
+  outline-offset: 1px;
+}
+
+.answerRow input:disabled {
+  opacity: 0.75;
+}
+
+.answerRow button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: white;
+  background: #ff963e;
+  box-shadow: 0 3px 0 #e47d32;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.answerRow button:hover:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #e47d32;
+}
+
+.answerRow button:disabled {
+  opacity: 0.6;
+}
+
+.answerError input {
+  border-color: #ef8e7c;
+  animation: answerShake 280ms ease-in-out;
+}
+
+.ruleToast {
+  position: absolute;
+  z-index: 5;
+  top: clamp(72px, 9vh, 88px);
+  left: clamp(12px, 2vw, 24px);
+  width: min(340px, calc(100vw - 32px));
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 174, 66, 0.75);
+  border-radius: 15px;
+  color: #765015;
+  background: rgba(255, 244, 197, 0.96);
+  box-shadow: 0 5px 15px rgba(97, 82, 43, 0.14);
+  animation: ruleToastEnter 240ms cubic-bezier(0.18, 0.75, 0.25, 1) both;
+  pointer-events: none;
+}
+
+.ruleToast > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #dc9223;
+}
+
+.ruleToast strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #a76b17;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.ruleToast p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-shadow: 0 1px rgba(255, 255, 255, 0.75);
+}
+
+.ruleToastLeaving {
+  animation: ruleToastExit 260ms ease-in both;
+}
+
+.pauseOverlay {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(58, 103, 119, 0.3);
+  backdrop-filter: blur(5px);
+}
+
+.pauseNote {
+  max-width: calc(100vw - 32px);
+  padding: 22px 30px;
+  border-radius: 20px;
+  color: #385868;
+  background: rgba(255, 248, 223, 0.96);
+  box-shadow: 0 8px 0 #dfc58e;
+  text-align: center;
+}
+
+.pauseNote h2 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.pauseNote p {
+  margin: 7px 0 16px;
+  color: #667a81;
+}
+
+.pauseNote button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 14px;
+  color: white;
+  background: #ff963e;
+  font-weight: 900;
+}
+
+.leftIsland {
+  left: calc(50% - min(280px, 21.5vw) - 100px);
+}
+
+.rightIsland {
+  left: calc(50% + min(280px, 21.5vw) + 100px);
+}
+
+.challengeCard h1[data-long='true'] {
+  font-size: clamp(30px, 4.6vw, 64px);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+
+.formError {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-radius: 12px;
+  color: #a8433c;
+  background: rgba(255, 232, 228, 0.95);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.rules {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: min(480px, 100%);
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rules li {
+  padding: 5px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 12px;
+  color: #465f6c;
+  background: rgba(255, 253, 247, 0.88);
+  box-shadow: 0 2px 8px rgba(67, 109, 115, 0.12);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.rules li.ruleNew {
+  border-color: rgba(239, 174, 66, 0.75);
+  color: #765015;
+  background: rgba(255, 244, 197, 0.96);
+}
+
+.scoreboard {
+  position: absolute;
+  z-index: 4;
+  bottom: 14px;
+  left: 50%;
+  display: flex;
+  gap: 14px;
+  padding: 7px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 14px;
+  color: #547487;
+  background: rgba(255, 253, 247, 0.9);
+  box-shadow: 0 3px 10px rgba(67, 109, 115, 0.14);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.scoreboard strong {
+  margin-left: 3px;
+  color: var(--leaf);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.violations {
+  margin: -6px 0 16px;
+  padding: 0;
+  color: #a8433c;
+  font-size: 13px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.pauseNote button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+@keyframes answerShake {
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes ruleToastEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-7px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ruleToastExit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.98);
+  }
+}
+
+@keyframes timerUrgency {
+  50% {
+    box-shadow: 0 3px 14px rgba(201, 77, 67, 0.3);
+  }
+}
+
+@media (max-width: 900px) {
+  .header {
+    grid-template-columns: auto auto 1fr auto;
+    gap: 12px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .challengeMeta {
+    width: 150px;
+  }
+  .challengeCard {
+    width: 55vw;
+  }
+  .challengeCard h1 {
+    font-size: clamp(66px, 8vw, 92px);
+  }
+  .timer {
+    top: 72px;
+    right: 12px;
+    left: auto;
+    transform: none;
+  }
+}
+
+@media (max-width: 900px) and (min-width: 601px) {
+  .leftIsland {
+    left: 12%;
+  }
+  .rightIsland {
+    left: 88%;
+  }
+}
+
+@media (max-width: 600px) {
+  .page {
+    height: 100svh;
+    min-height: 620px;
+    overflow: hidden;
+  }
+  .header {
+    min-height: 62px;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    padding: 7px 12px;
+    background: linear-gradient(180deg, rgba(255, 253, 247, 0.65), transparent);
+  }
+  .worldName {
+    display: flex;
+    justify-self: start;
+    gap: 5px;
+    font-size: 9px;
+  }
+  .worldName strong {
+    font-size: 11px;
+  }
+  .worldDot {
+    width: 8px;
+    height: 8px;
+  }
+  .challengeMeta {
+    display: none;
+  }
+  .actions button {
+    width: 36px;
+    height: 36px;
+  }
+  .timer {
+    width: 96px;
+    padding: 6px 8px 7px;
+  }
+  .timerReadout span {
+    font-size: 7px;
+  }
+  .timerReadout strong {
+    font-size: 13px;
+  }
+  .timerTrack {
+    height: 4px;
+    margin-top: 6px;
+  }
+  .layout {
+    min-height: 620px;
+  }
+  .stagePlatform {
+    width: 72px;
+    height: 36px;
+  }
+  .stagePlatform.leftIsland,
+  .leftIsland {
+    left: 15%;
+  }
+  .stagePlatform.rightIsland,
+  .rightIsland {
+    left: 85%;
+  }
+  .challengeCard {
+    top: 50%;
+    width: 50vw;
+    max-height: calc(100svh - 84px);
+  }
+  .challengeCard h1 {
+    margin-top: 8px;
+    font-size: clamp(48px, 13vw, 65px);
+  }
+  .challengeCard > p {
+    margin: 6px 0 12px;
+    font-size: 11px;
+  }
+  .challengeBadge {
+    font-size: 9px;
+  }
+  .challengeCard form label {
+    font-size: 10px;
+  }
+  .answerRow {
+    grid-template-columns: minmax(0, 1fr) 38px;
+    gap: 5px;
+  }
+  .answerRow input {
+    height: 39px;
+    padding: 0 8px;
+    font-size: 14px;
+  }
+  .answerRow input::placeholder {
+    font-size: 9px;
+  }
+  .answerRow button {
+    width: 38px;
+    height: 38px;
+  }
+  .answerRow button svg {
+    width: 15px;
+    height: 15px;
+  }
+  .challengeCard h1[data-long='true'] {
+    font-size: clamp(26px, 8vw, 40px);
+  }
+  .rules {
+    gap: 4px;
+    margin-top: 10px;
+  }
+  .rules li {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  .scoreboard {
+    gap: 9px;
+    padding: 6px 10px;
+  }
+  .scoreboard strong {
+    font-size: 13px;
+  }
+  .ruleToast {
+    top: 72px;
+    left: 12px;
+    width: min(220px, calc(100vw - 132px));
+    gap: 7px;
+    padding: 8px 10px;
+  }
+  .ruleToast > svg {
+    width: 17px;
+    height: 17px;
+  }
+  .ruleToast strong {
+    font-size: 8px;
+  }
+  .ruleToast p {
+    font-size: 11px;
+  }
+}
+
+@media (max-height: 500px) and (min-width: 601px) {
+  .page {
+    height: auto;
+    min-height: 620px;
+    overflow: auto;
+  }
+  .layout {
+    position: relative;
+    height: 620px;
+    min-height: 620px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .answerError input,
+  .ruleToast,
+  .ruleToastLeaving,
+  .timerUrgent {
+    animation: none;
+  }
+  .actions button,
+  .answerRow button,
+  .timerProgress,
+  .timer {
+    transition: none;
+  }
+}
+
+.ruleBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.rules li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ruleTag {
+  padding: 1px 6px;
+  border-radius: 8px;
+  color: white;
+  background: #dc9223;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ruleLegend {
+  width: min(480px, 100%);
+  margin: 8px 0 0;
+  color: #526c79;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-shadow:
+    0 1px 0 white,
+    0 0 8px white;
+}
+
+.ruleToastHint {
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.successNote {
+  width: min(390px, 100%);
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(94, 170, 96, 0.6);
+  border-radius: 14px;
+  color: #2f6a3a;
+  background: rgba(232, 248, 226, 0.96);
+  box-shadow: 0 3px 10px rgba(67, 109, 115, 0.14);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.successNote strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+}
+
+.successNote dl {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin: 6px 0 0;
+}
+
+.successNote dt {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.successNote dd {
+  margin: 0;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.successNote p {
+  margin: 6px 0 0;
+}
+
+.lifecycleNote {
+  font-size: 13px;
+}
+
+.restartInfo {
+  margin: 0 0 14px;
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  text-align: left;
+}
+
+.restartInfo h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.restartInfo ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.restartInfo ul ul {
+  margin-top: 2px;
+  font-size: 12px;
+}
